@@ -12,11 +12,17 @@ _DB_LOCK = threading.RLock()
 
 
 class _FrozenRows:
-    """已取回的结果集：fetchone/fetchall 不再碰数据库连接。"""
+    """已取回的结果集：fetchone/fetchall 不再碰数据库连接。
 
-    def __init__(self, rows):
+    但 INSERT 之后调用方还要读 lastrowid —— 冻结结果集必须把它带出来，
+    否则 upsert_doc 这类「插入后取 id」的路径会直接崩。
+    """
+
+    def __init__(self, rows, lastrowid=None, rowcount=None):
         self._rows = rows
         self._i = 0
+        self.lastrowid = lastrowid
+        self.rowcount = rowcount
 
     def fetchone(self):
         if self._i < len(self._rows):
@@ -47,7 +53,8 @@ class _LockedConn:
         with _DB_LOCK:
             cur = self._c.execute(*a, **kw)
             rows = cur.fetchall()
-        return _FrozenRows(rows)
+            lastrowid, rowcount = cur.lastrowid, cur.rowcount
+        return _FrozenRows(rows, lastrowid, rowcount)
 
     def executescript(self, *a, **kw):
         with _DB_LOCK:
@@ -210,7 +217,8 @@ class Store:
         with _DB_LOCK:
             cur = self._raw.execute(*a, **kw)
             rows = cur.fetchall()
-        return _FrozenRows(rows)
+            lastrowid, rowcount = cur.lastrowid, cur.rowcount
+        return _FrozenRows(rows, lastrowid, rowcount)
 
     def execute(self, *a, **kw):
         with _DB_LOCK:

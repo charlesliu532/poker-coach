@@ -69,8 +69,11 @@ const Spot = (() => {
   function derive() {
     const seq = S.seq;
     const raisers = seq.filter((x) => RAISE_ACTS.includes(x.act));
-    const players = [...new Set(seq.map((x) => x.pos))];
     const alive = seq.filter((x) => x.act !== "弃牌");
+    // 人数只算「还在牌局里的人」：UTG 开、HJ 3bet、CO 弃、UTG 跟，
+    // 这是一个 3bet 底池，不是三人池 —— 弃牌的人不参与翻后。
+    const alivePos = [...new Set(alive.map((x) => x.pos))];
+    const players = [...new Set(seq.map((x) => x.pos))];
     const last = alive.length ? alive[alive.length - 1] : null;
     const opener = seq.find((x) => x.act === "开池") || null;
 
@@ -79,20 +82,20 @@ const Spot = (() => {
     let pot = "SRP";
     if (n >= 3) pot = "4BP";
     else if (n === 2) pot = "3BP";
-    if (players.length >= 3) pot = n >= 2 ? "3BP多人" : "3人池";
+    if (alivePos.length >= 3) pot = n >= 2 ? "3BP多人" : "3人池";
 
     const hero = last ? last.pos
       : (positions().includes("BTN") ? "BTN" : positions()[0]);
     const villain = (opener && opener.pos !== hero) ? opener.pos
-      : (players.find((p) => p !== hero) || "BB");
+      : (alivePos.find((p) => p !== hero) || players.find((p) => p !== hero) || "BB");
     const iRaisedLast = last ? RAISE_ACTS.includes(last.act) : true;
 
     return {
       hero, villain, pot,
       opener: iRaisedLast ? "hero" : "villain",
-      involved: alive.length ? [...new Set(alive.map((x) => x.pos))] : [hero, villain],
-      villain2: players.length >= 3 ? players.filter((p) => p !== hero && p !== villain)[0] || "*" : "*",
-      raises: n, players: players.length,
+      involved: alivePos.length ? alivePos : [hero, villain],
+      villain2: alivePos.length >= 3 ? alivePos.filter((p) => p !== hero && p !== villain)[0] || "*" : "*",
+      raises: n, players: alivePos.length,
       street: S.street,
       tableType: S.tableType,
       heroStack: S.heroStack,
@@ -132,9 +135,21 @@ const Spot = (() => {
     return apply();
   }
 
+  // 序列 → 给后端的编码：BTN:open>BB:call
+  function seqCode(act) {
+    const m = {
+      "开池": "open", "3bet": "3bet", "4bet": "4bet",
+      "5bet": "5bet", "5bet 全下": "5bet", "跟注": "call", "弃牌": "fold",
+    };
+    return m[String(act || "").trim()] || String(act || "").trim().toLowerCase();
+  }
+  function line() {
+    return S.seq.map((x) => `${x.pos}:${seqCode(x.act)}`).join(">");
+  }
+
   return {
     get state() { return S; },
-    positions, derive, apply, bump,
+    positions, derive, apply, bump, line,
     setTableType(v) { return bump((s) => { s.tableType = v; }); },
     setStacks(h, v) { return bump((s) => { s.heroStack = h; s.villainStack = v; }); },
     setVsType(t, t2) { return bump((s) => { s.vsType = t; s.vsType2 = t2; }); },
@@ -163,6 +178,30 @@ const Spot = (() => {
       if (act === "5bet 全下") return "5bet";
       if (act === "跟注") return n >= 3 ? "call4bet" : "call3bet";
       return "fold";
+    },
+    // 深链 / 分享：?pf=BTN:open>BB:call 直接还原一条翻前序列
+    loadLine(text) {
+      const map = {
+        open: "开池", "3bet": "3bet", "4bet": "4bet", "5bet": "5bet 全下",
+        call: "跟注", fold: "弃牌",
+      };
+      let raises = 0;
+      const steps = [];
+      String(text || "").split(">").forEach((chunk) => {
+        const [p, a] = String(chunk || "").split(":");
+        const pos = String(p || "").trim().toUpperCase();
+        const act = map[String(a || "").trim().toLowerCase()];
+        if (!pos || !act) return;
+        let kind = "fold";
+        if (act === "开池") { kind = "open"; raises += 1; }
+        else if (act === "3bet") { kind = "3bet"; raises += 1; }
+        else if (act === "4bet") { kind = "4bet"; raises += 1; }
+        else if (act === "5bet 全下") { kind = "5bet"; raises += 1; }
+        else if (act === "跟注") kind = raises >= 3 ? "call4bet" : (raises >= 2 ? "call3bet" : "call_open");
+        steps.push({ pos, act, kind, pct: null });
+      });
+      if (!steps.length) return null;
+      return bump((s) => { s.seq = steps; });
     },
   };
 })();
@@ -3148,6 +3187,54 @@ function renderLockedPanel(d) {
     <div class="lkp-note">这是按你锁定的对手形象推的启发式结果，不是 solver 真值</div>`;
 }
 
+function bluffDetailHtml(combo) {
+  const p = window.__bluffPlan;
+  if (!p || !p.ok || !p.ranked || !p.ranked.length) return "";
+  const rows = p.ranked.filter((x) => x.combo === combo);
+  if (!rows.length) return "";
+  const sel = rows.filter((x) => x.selected).length;
+  const chips = rows.map((x) => `
+    <span class="bl-chip ${x.selected ? "on" : ""}" title="挡强牌 ${(x.block_strong * 100).toFixed(0)}% · 挡弱牌 ${(x.block_weak * 100).toFixed(0)}% · 修正后弃牌率 ${(x.f * 100).toFixed(0)}%">
+      <b>#${x.rank}</b><span class="bl-cards">${esc(x.cards)}</span>
+      <em>${x.surplus >= 0 ? "+" : ""}${x.surplus.toFixed(3)}</em>
+      <i>${x.selected ? "诈唬" : "过牌"}</i>
+    </span>`).join("");
+  return `<div class="bl-wrap">
+    <div class="bl-head">诈唬排序 · 按 EV surplus 从高到低
+      <span class="bl-sub">配额 ${p.target.toFixed(1)} 组合 · 选中 ${sel}/${rows.length} 手</span></div>
+    <div class="bl-chips">${chips}</div>
+    <div class="bl-note">挡掉对手 30% 强牌 → 他更难跟 → 弃牌率升 → 更该诈唬；挡掉他本来会弃的弱牌 → 反而不该诈唬。</div>
+  </div>`;
+}
+
+function renderFreqBar(d) {
+  const el = document.getElementById("freqBar");
+  if (!el) return;
+  const f = d.freq;
+  if (!f || !f.actions || !f.actions.length) { el.innerHTML = ""; return; }
+  const segs = f.actions.map((a) =>
+    `<i style="width:${a.pct}%;background:${a.color}" title="${esc(a.label)} ${a.pct}%（${a.combos} 组合）"></i>`).join("");
+  const chips = f.actions.map((a) =>
+    `<span class="fr-chip"><i style="background:${a.color}"></i>${esc(a.label)}
+      <b>${a.pct}%</b><em>${a.combos} 组合</em></span>`).join("");
+  const pf = d.preflop || {};
+  const pfTxt = (pf.ok && (pf.hero_pct != null || pf.villain_pct != null))
+    ? `<div class="fr-pre">翻前：${esc(pf.label || "")}
+        <span class="fr-pre-r">我方 ${pf.hero_pct ?? "—"}% · 对手 ${pf.villain_pct ?? "—"}% 组合</span>
+        <span class="fr-pre-note">范围已带进翻后（${esc(pf.hero_label || "我方")}${pf.villain_label ? " / " + esc(pf.villain_label) : ""}）</span></div>`
+    : "";
+  const b = d.bluff || null;
+  const bluffTxt = (b && b.ok)
+    ? `<div class="fr-bluff">诈唬构成：${b.size_pct}% 池按 alpha 配额 ${b.quota.toFixed(1)} 组合，
+        桶表空气 ${b.air_available.toFixed(1)} → 按 EV surplus 排序只留 <b>${b.selected}</b> 组合</div>`
+    : (b && b.why ? `<div class="fr-bluff muted">诈唬构成：${esc(b.why)}</div>` : "");
+  el.innerHTML = `<div class="fr-head">节点频率
+      <span class="fr-sub">按组合加权 · 共 ${f.total_combos} 个组合 · 有动作 ${f.bet_combos} 个</span></div>
+    <div class="fr-bar">${segs}</div>
+    <div class="fr-chips">${chips}</div>
+    ${pfTxt}${bluffTxt}`;
+}
+
 function renderMixSummary(d) {
   const el = document.getElementById("mixSummary");
   if (!el) return;
@@ -3156,9 +3243,10 @@ function renderMixSummary(d) {
   if (!multiOn || !m) { el.innerHTML = ""; return; }
   const bd = (m.boundary || []).slice(0, 6)
     .map((x) => `<span class="bd-chip" title="${esc(x.hand)} ${esc(x.cat || "")}｜临界">${esc(x.hand)}</span>`).join("");
+  const betPct = (d.freq && d.freq.bet_pct != null) ? d.freq.bet_pct : m.aggregate_freq;
   el.innerHTML = `<div class="mix-head">混合策略（${(d.strategy_mode || {}).n_sizing || "?"} 个尺度）</div>
-    <div class="mix-row"><span>整体下注频率</span><b class="mix-agg">${m.aggregate_freq}%</b>
-      <span class="mix-note">这是真数据</span></div>
+    <div class="mix-row"><span>整体出牌频率</span><b class="mix-agg">${betPct}%</b>
+      <span class="mix-note">按组合加权</span></div>
     <div class="mix-row"><span>可动作手牌</span><b>${m.acted_count} 类</b></div>
     <div class="mix-row" style="align-items:flex-start"><span>边界手牌</span>
       <div class="bd-list">${bd || "无"}<div class="bd-tip">这些牌「可打可过」，记住边界比背百分比有用</div></div></div>
@@ -3167,10 +3255,22 @@ function renderMixSummary(d) {
 
 function goPostflop() {
   // 带着翻前的范围/位置/底池进入翻后
+  // 注意：必须先改 Spot 的状态。derivePreflopUI() 会用 Spot.apply()
+  // 把 treeStreet 写回去，只改 DOM 会在下一步被覆盖回「翻前」。
+  try { Spot.setStreet("翻牌"); } catch (e) {}
   const st = document.getElementById("treeStreet");
   if (st) st.value = "翻牌";
   syncTableType();
   derivePreflopUI();
+  // 进翻后第一件事：确定谁先说话。
+  // 不重置的话 treeAction 还停在翻前的「开池」，翻后节点会查不到规则。
+  try {
+    const d = Spot.derive();
+    const role = roleFrom(d.hero, d.villain, d.opener, d.pot);
+    const oop = role.startsWith("OOP") || role === "BvB-BB";
+    const act = document.getElementById("treeAction");
+    if (act) act.value = oop ? "无" : "对手过牌";
+  } catch (e) {}
   const bh = document.getElementById("boardHint");
   if (bh) bh.style.display = "";
   playReset();
@@ -3930,7 +4030,8 @@ async function loadTree() {
       if (cb && cb.checked) return "0";   // 勾了混合 → 不简化
       return "1";
     })(),
-    multi: "0",
+    // 翻前序列 → 翻后范围（谁开池/谁跟注/谁 3bet，决定手里还剩哪些牌）
+    pf: (!isPre && typeof Spot !== "undefined") ? Spot.line() : "",
   });
   const box = $("#treeGrid");
   const meta = $("#treeMeta");
@@ -3958,10 +4059,13 @@ async function loadTree() {
   window.__treeState = v;
     window.__rangeBetPct = r.range_bet_pct;
   window.__treeCells = r.cells || [];
+  window.__bluffPlan = r.bluff || null;
+  window.__preflopLine = r.preflop || null;
   window.__ruleInfo = { sizing: rule.sizing, freq: rule.freq, table: r.table.id };
   window.__mixTh = (r.strategy_mode || {}).threshold;
     try { renderPokerTable(v, {}); } catch (e) { console.warn("table:", e); }
   try { renderGuarantee(r.guarantee); } catch (e) { console.warn("guar:", e); }
+  try { renderFreqBar(r); } catch (e) { console.warn("freq:", e); }
   try { renderMixSummary(r); } catch (e) { console.warn("mix:", e); }
   try { renderLockedPanel(r); } catch (e) { console.warn("locked:", e); }
   try { renderVersionBar(); } catch (e) { console.warn("ver:", e); }
@@ -4028,17 +4132,18 @@ async function loadTree() {
 
     box.className = "treegrid";
     box.innerHTML = "";
+    const passTxt = v.street === "翻前" ? "弃" : "过";
     r.cells.forEach((c) => {
       const d = document.createElement("div");
       d.className = "treecell";
       const folded = !!c.folded;
       const mix = c.mix || [];
       if (folded) {
-        // 翻前就该弃掉的牌
+        // 翻前不在范围 = 弃牌；翻后不下注 = 过牌（不是弃牌，别写错）
         d.style.background = "#131313";
         d.style.color = "#454545";
         d.style.opacity = "0.5";
-        d.innerHTML = `<span class="cb">${c.combo}</span><span class="pct">弃</span>`;
+        d.innerHTML = `<span class="cb">${c.combo}</span><span class="pct">${passTxt}</span>`;
       } else if (mix.length) {
         // solver 风格：整格按动作占比做横向渐变
         let acc = 0;
@@ -4051,18 +4156,23 @@ async function loadTree() {
         d.style.color = "#fff";
         d.style.textShadow = "0 1px 3px rgba(0,0,0,.9)";
         const top = mix.slice().sort((x, y) => y.freq - x.freq)[0];
-        d.innerHTML = `<span class="cb">${c.combo}</span><span class="pct">${top.freq}</span>`;
+        d.innerHTML = `<span class="cb">${c.combo}</span><span class="pct">${top.freq}%</span>`;
       } else {
         d.style.background = "#1a1a1a";
         d.style.color = "#6b6b6b";
         d.innerHTML = `<span class="cb">${c.combo}</span><span class="pct">–</span>`;
       }
+      const bl = c.bluff;
+      const blNote = bl ? `｜surplus 最好 #${bl.best_rank}（本类 ${bl.of} 手，选中 ${bl.selected}）` : "";
       d.title = folded
-        ? `${c.combo}｜翻前不在开池范围，已弃牌`
-        : `${c.combo}｜${c.cat}｜${c.bucket === null ? "未收录" : tag + " " + c.bucket + "%"}`;
+        ? (v.street === "翻前" ? `${c.combo}｜翻前不在开池范围，已弃牌`
+                               : `${c.combo}｜这个节点不下注（过牌）${blNote}`)
+        : `${c.combo}｜${c.cat}｜${c.bucket === null ? "未收录" : tag + " " + c.bucket + "%"}${blNote}`;
       d.onclick = () => {
         const head = folded
-          ? `<b>${c.combo}</b> → <b style="color:#c96">翻前就该弃</b>（不在 ${v.hero} 的开池范围里），不存在翻后${tag}频率`
+          ? (v.street === "翻前"
+              ? `<b>${c.combo}</b> → <b style="color:#c96">翻前就该弃</b>（不在 ${v.hero} 的开池范围里），不存在翻后${tag}频率`
+              : `<b>${c.combo}</b>｜${c.cat} → <b style="color:#c96">这个节点不下注（过牌）</b>${bl ? `｜surplus 最好 #${bl.best_rank}（本类 ${bl.of} 手，选中 ${bl.selected}）` : ""}`)
           : (c.mix && c.mix.length
               ? `<b>${c.combo}</b>｜${c.cat}｜` + c.mix.map((m) =>
                   `<span style="display:inline-block;width:10px;height:10px;background:${m.color};border-radius:2px;margin-left:8px;vertical-align:middle"></span> <b>${esc(m.action)}</b> ${m.freq}%`).join("")
@@ -4092,7 +4202,7 @@ async function loadTree() {
             存活组合 <b>${vars.filter((x) => !x.dead).length}</b>/${vars.length}　
             持同花色的牌阻断对手的坚果同花，所以频率上调
           </div>` : "";
-        $("#treeDetail").innerHTML = head + split +
+        $("#treeDetail").innerHTML = head + split + bluffDetailHtml(c.combo) +
           (rule.note ? `　<span style="color:#6b6b6b">${rule.note}</span>` : "") +
           `　<span style="color:#6b6b6b">（${rule.source} · 置信 ${rule.conf}）</span>`;
       };
@@ -4105,9 +4215,10 @@ async function loadTree() {
         r.cells.forEach((c) => (c.mix || []).forEach((m) => seen.set(m.kind, m.color)));
         const chips = [...seen.entries()].map(([k, col]) =>
           `<span style="display:inline-block;padding:1px 8px;margin-right:6px;border-radius:3px;background:${col};color:#fff;font-size:11.5px">${esc(k)}</span>`).join("");
+        const passTip = v.street === "翻前" ? "深灰＝翻前已弃" : "深灰＝这个节点过牌";
         return `<span style="opacity:.75">图例</span> ${chips}
-          <span style="opacity:.75">｜每格按动作占比左右分割，左下数字＝占比最大的动作</span>
-          <span style="opacity:.75">｜深灰＝翻前已弃｜点格子看完整混合</span>`;
+          <span style="opacity:.75">｜每格按动作占比左右分割，格内数字＝占比最大的动作</span>
+          <span style="opacity:.75">｜${passTip}｜点格子看完整混合与诈唬排序</span>`;
       })();
     // 深链：URL 带 ?combo=A5s 时自动点开那手牌（要放在图例之后，否则会被覆盖）
     try {
@@ -4165,6 +4276,15 @@ if (params.get("tree")) {
   if (pip) pip.addEventListener("change", () => { applyPath(pip.value); loadTree(); });
   setv("#treeLine", params.get("line"));
   setv("#treeRunout", params.get("runout"));
+  // 分享链接带 ?pf=BTN:open>BB:call：还原整条翻前序列，翻后范围随之带过去
+  if (params.get("pf")) {
+    try {
+      Spot.loadLine(params.get("pf"));
+      if (params.get("street")) Spot.setStreet(params.get("street"));
+      Spot.apply();
+    } catch (e) { console.warn("pf:", e); }
+  }
   activateTab("tree", false);
+  try { pfSeqRender(); loadTree(); } catch (e) {}
 }
 

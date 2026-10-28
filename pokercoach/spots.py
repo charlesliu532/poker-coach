@@ -64,6 +64,9 @@ def _freq_options(pct: float) -> list:
 
 
 _SCENE_CACHE = {"key": None, "data": None}
+# 计算口径变了就升版本：旧缓存里的「范围下注率」是 169 格平均，
+# 现在改成组合加权 + 诈唬截断，必须让旧 .scenes.json 失效。
+_SCENE_VERSION = 2
 _CACHE_FILE = "data/tree/.scenes.json"
 
 
@@ -73,13 +76,13 @@ def collect_scenes(root: Path, limit: int = 400) -> list:
         mt = (root / "rules.csv").stat().st_mtime
     except Exception:
         mt = 0
-    key = (str(root), mt, limit)
+    key = (str(root), mt, limit, _SCENE_VERSION)
     if _SCENE_CACHE["key"] == key and _SCENE_CACHE["data"] is not None:
         return _SCENE_CACHE["data"]
 
     # 磁盘缓存：第二次启动直接读，不再重算（冷启 30 秒 → 0.05 秒）
     import json as _json
-    cache_path = root / ".scenes.json"
+    cache_path = root / f".scenes-v{_SCENE_VERSION}.json"
     try:
         # 只要有缓存就用（不再比 mtime——打包版启动时会重拷数据，mtime 会变新）
         if cache_path.exists() and cache_path.stat().st_size > 1000:

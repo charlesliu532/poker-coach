@@ -9,6 +9,7 @@ __pycache__/
 data/transcripts/*.mp4
 data/transcripts/*.mkv
 data/tree/.scenes.json
+data/tree/.scenes-v*.json
 coach.sqlite
 data/demo.sqlite
 
