@@ -11,16 +11,24 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 SEP = ";" if sys.platform == "win32" else ":"
 
+# 数据目录：存在才打包（云端仓库不含私密笔记，缺目录不能报错）
+DATA_DIRS = [
+    ("pokercoach/web", "pokercoach/web"),
+    ("data/tree", "data/tree"),
+    ("data/notes", "data/notes"),
+    ("data/transcripts", "data/transcripts"),
+]
+
 args = [
     sys.executable, "-m", "PyInstaller",
     "--noconfirm", "--clean",
     "--onefile",
     "--name", "扑克复盘台",
-    # 数据文件全部打进去
-    "--add-data", f"{ROOT/'pokercoach/web'}{SEP}pokercoach/web",
-    "--add-data", f"{ROOT/'data/tree'}{SEP}data/tree",
-    "--add-data", f"{ROOT/'data/notes'}{SEP}data/notes",
-    "--add-data", f"{ROOT/'data/transcripts'}{SEP}data/transcripts",
+] + [
+    a for src, dst in DATA_DIRS
+    if (ROOT / src).exists()
+    for a in ("--add-data", f"{ROOT/src}{SEP}{dst}")
+] + [
     # 只用到这些第三方包
     "--hidden-import", "numpy",
     "--collect-submodules", "pokercoach",
