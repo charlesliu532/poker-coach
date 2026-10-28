@@ -2242,17 +2242,21 @@ function renderPokerTable(v, ruleInfo) {
   // 桌上该画几个座位：跟桌型一致（6-max 画 6 个，8-max 画 8 个），没参与的人灰掉
   const tableType = (document.getElementById("treeTableType") || {}).value || "6-max";
   const seatCount = tableType.startsWith("8") ? 8 : 6;
-  // 双方筹码：优先各自的，其次全局的
-  const globalStack = ($("#treeHeroStack") && $("#treeHeroStack").value) || v.stack;
+  // 双方筹码：优先各自的，其次全局的。
+  // 注意用 v.heroStack（caller 已经按强抓折半），不要再读下拉框原值。
+  const globalStack = (v.heroStack && v.heroStack !== "*")
+    ? v.heroStack
+    : ((($("#treeHeroStack") || {}).value) || v.stack);
   const vStackSel = ($("#treeVillainStack") && $("#treeVillainStack").value) || "*";
   const stackOf = (who) => {
     if (who === "hero") {
       if (v.heroStack && v.heroStack !== "*") return v.heroStack;
       return (globalStack && globalStack !== "*") ? globalStack : "—";
     }
-    // 对手：选了「同我」就跟着我方深度走
-    if (vStackSel && vStackSel !== "*") return vStackSel;
+    // 对手：优先用调用方传进来的（强抓已经把有效筹码折半），
+    // 不能直接读下拉框原值，否则英雄 50bb、对手 200bb 对不上。
     if (v.villainStack && v.villainStack !== "*") return v.villainStack;
+    if (vStackSel && vStackSel !== "*") return vStackSel;
     return (globalStack && globalStack !== "*") ? globalStack : "—";
   };
   // 全员座位（按桌型），参与的高亮、没参与的灰掉
@@ -2937,7 +2941,70 @@ async function pfShowRange(pos, kind, oppArg) {
         box.appendChild(el);
       });
     }
-    if (meta) meta.innerHTML = `<b style="color:#ffd479">${esc(d.label)}</b> · ${d.pct}%`;
+    // ── 同步整屏，别只换网格 ──────────────────────────────
+    // 以前只更新 #treeGrid，下面的牌桌/频率条还是上一个节点的
+    // （UTG 开池 19.9%），看起来就像「3bet 之后范围变成开池范围」。
+    const wOf = (h) => (h.length === 2 ? 6 : (h.endsWith("s") ? 4 : 12));
+    const w = { raise: 0, call: 0, fold: 0 };
+    let total = 0;
+    (d.cells || []).forEach((c) => {
+      const n = wOf(c.combo || "");
+      total += n;
+      w.raise += n * (c.raise || 0) / 100;
+      w.call += n * (c.call || 0) / 100;
+      w.fold += n * (c.fold || 0) / 100;
+    });
+    const pctOf = (x) => (total > 0 ? Math.round((x / total) * 1000) / 10 : 0);
+    const actCN = kind === "3bet" ? "3bet" : kind === "4bet" ? "4bet" : kind === "5bet" ? "5bet 全下" : "开池";
+    const acts = [
+      { kind: "raise", label: actCN, color: "#c0392b", combos: Math.round(w.raise * 10) / 10, pct: pctOf(w.raise) },
+      { kind: "跟注", label: "跟注", color: "#2e86c1", combos: Math.round(w.call * 10) / 10, pct: pctOf(w.call) },
+      { kind: "弃牌", label: "弃牌", color: "#41535f", combos: Math.round(w.fold * 10) / 10, pct: pctOf(w.fold) },
+    ].filter((a) => a.pct > 0.05);
+    try {
+      renderFreqBar({
+        freq: { total_combos: Math.round(total), bet_combos: Math.round(w.raise + w.call),
+                bet_pct: pctOf(w.raise + w.call), actions: acts },
+        preflop: {}, bluff: null,
+      }, `翻前范围 · ${pos} ${actCN} ${opp}`);
+    } catch (e) { console.warn("pf freq:", e); }
+    try {
+      const st = Spot.derive();
+      const hv = (document.getElementById("treeHeroStack") || {}).value || "100bb";
+      const vv = (document.getElementById("treeVillainStack") || {}).value || "*";
+      // 强抓：有效筹码按一半算，座位标签也要跟着变（跟 loadTree 同一套）
+      const tt = (document.getElementById("treeTableType") || {}).value || "";
+      const half = (x) => {
+        const n = parseFloat(String(x));
+        return Number.isNaN(n) ? x : Math.max(5, Math.round(n / 2)) + "bb";
+      };
+      const straddle = String(tt).includes("强抓");
+      const hShow = straddle ? half(hv) : hv;
+      const vShow = straddle ? (vv !== "*" ? half(vv) : hShow) : vv;
+      renderPokerTable({
+        hero: pos, villain: opp, pot: st.pot || "SRP", street: "翻前",
+        heroStack: hShow, villainStack: vShow, stack: hShow, board: "",
+      }, {});
+      const pa = document.getElementById("playActions");
+      if (pa) pa.innerHTML = "";
+    } catch (e) { console.warn("pf table:", e); }
+    for (const id of ["mixSummary", "lockedPanel", "treeGuarantee"]) {
+      const el = document.getElementById(id);
+      if (el) el.innerHTML = "";
+    }
+    const det = document.getElementById("treeDetail");
+    if (det) {
+      det.innerHTML = `<b style="color:#ffd479">这一步的可选范围</b>：` +
+        `加注/3bet <b>${pctOf(w.raise)}%</b>　跟注 <b>${pctOf(w.call)}%</b>　弃牌 <b>${pctOf(w.fold)}%</b>。` +
+        ` <span style="color:#8a929c">进翻后只保留你实际选择的那一个动作的范围（点「添加」记录的动作），不会把跟注范围带进去。</span>`;
+    }
+    window.__treeState = { hero: pos, villain: opp, pot: (Spot.derive() || {}).pot || "SRP", street: "翻前" };
+    if (meta) {
+      const flat = w.call > 0.5
+        ? ` <span style="color:#2e86c1">· 平跟 ${pctOf(w.call)}%</span>`
+        : "";
+      meta.innerHTML = `<b style="color:#ffd479">${esc(d.label)}</b> · ${d.pct}%${flat}`;
+    }
     return d;
   } catch (e) { console.warn("pf range:", e); return null; }
 }
@@ -3209,7 +3276,7 @@ function bluffDetailHtml(combo) {
   </div>`;
 }
 
-function renderFreqBar(d) {
+function renderFreqBar(d, title) {
   const el = document.getElementById("freqBar");
   if (!el) return;
   const f = d.freq;
@@ -3230,7 +3297,7 @@ function renderFreqBar(d) {
     ? `<div class="fr-bluff">诈唬构成：${b.size_pct}% 池按 alpha 配额 ${b.quota.toFixed(1)} 组合，
         桶表空气 ${b.air_available.toFixed(1)} → 按 EV surplus 排序只留 <b>${b.selected}</b> 组合</div>`
     : (b && b.why ? `<div class="fr-bluff muted">诈唬构成：${esc(b.why)}</div>` : "");
-  el.innerHTML = `<div class="fr-head">节点频率
+  el.innerHTML = `<div class="fr-head">${esc(title || "节点频率")}
       <span class="fr-sub">按组合加权 · 共 ${f.total_combos} 个组合 · 有动作 ${f.bet_combos} 个</span></div>
     <div class="fr-bar">${segs}</div>
     <div class="fr-chips">${chips}</div>
@@ -3884,9 +3951,9 @@ function syncTableType() {
   // 切到「8-max + 强抓」时，默认筹码设成 200bb（200bb 带抓 ≈ 6 人桌 100bb）
   if (sel.value.includes("强抓")) {
     const hst = document.getElementById("treeHeroStack");
-    const vst = document.getElementById("treeVillainStack");
     if (hst && hst.value === "*") hst.value = "200bb";
-    if (vst && vst.value === "*") vst.value = "200bb";
+    // 对手保持「同我」（*），别把它改成固定 200bb：
+    // 否则英雄 100bb→50bb、对手 200bb→100bb，同一张桌子两个有效筹码。
   }
   POS_ORDER = is8 ? { ...POS_ORDER_8 } : { ...POS_ORDER_6 };
   const list = is8 ? POS_8 : POS_6;
@@ -3992,6 +4059,29 @@ async function loadTree() {
       v.villainStackRaw = v.villainStack;
       v.heroStack = half(v.heroStack);
       v.villainStack = half(v.villainStack);
+    }
+  }
+  // 翻前 + 已有序列：下面要显示「序列最后一步是什么」，而不是按位置
+  // 去查一条「开池」规则 —— 否则 CO 3bet 之后会显示成 CO 的开池范围。
+  if (v.street === "翻前" && typeof Spot !== "undefined" && Spot.line()) {
+    const seq = Spot.state.seq.filter((x) => x.act !== "弃牌");
+    const last = seq[seq.length - 1];
+    if (last) {
+      const RAISE = ["开池", "3bet", "4bet", "5bet 全下"];
+      let kind = "open";
+      if (last.act === "3bet") kind = "3bet";
+      else if (last.act === "4bet") kind = "4bet";
+      else if (last.act === "5bet 全下") kind = "5bet";
+      else if (last.act === "跟注") {
+        const nR = seq.filter((x) => RAISE.includes(x.act)).length;
+        kind = nR >= 3 ? "call4bet" : nR >= 2 ? "call3bet" : "call_open";
+      }
+      const raisers = seq.filter((x) => RAISE.includes(x.act));
+      const prev = raisers.length >= 2 ? raisers[raisers.length - 2] : null;
+      const oppPos = prev ? prev.pos
+        : ((seq.find((x) => x.pos !== last.pos) || {}).pos || v.villain);
+      await pfShowRange(last.pos, kind, oppPos);
+      return;
     }
   }
   const isPre = v.street === "翻前";

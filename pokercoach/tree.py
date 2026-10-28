@@ -1644,6 +1644,11 @@ def preflop_range_matrix(pos: str, opp: str, kind: str = "open", vs_type: str = 
         elif kind == "4bet":
             spec = FOURBET_RANGE.get(t)
             label = f"{pos} 的 4bet 范围"
+        elif kind in ("call_open", "call"):
+            # 平跟一次开池：用「对这次开池的跟注范围」，不是开池范围
+            from .preflop import threebet_call as _tc
+            spec = _tc(pos, opp) or None
+            label = f"{pos} 对 {opp} 开池的跟注范围"
         elif kind == "call3bet":
             spec = CALL_3BET_RANGE.get(t)
             label = f"{pos} 跟注 3bet 的范围"
@@ -1703,12 +1708,21 @@ def preflop_range_matrix(pos: str, opp: str, kind: str = "open", vs_type: str = 
     call_set = None
     if kind == "3bet":
         # raise 用上面按「开池位置」算出来的 inr，不要再用通用的 THREEBET_RANGE
-        call_set = _set(CALL_3BET_RANGE.get(t))
+        # 跟注要用「对这次开池的平跟范围」，不能用 CALL_3BET_RANGE ——
+        # 后者是「我开池后被 3bet 再跟注」的范围，动作上下文完全不同。
+        # 以前这里混用，3bet 节点会画出 22-JJ/A2s-AQs 一大片跟注，
+        # 看起来就像开池范围。
+        try:
+            from .preflop import threebet_call as _tc
+            call_spec = _tc(pos, opp)
+        except Exception:
+            call_spec = ""
+        call_set = _set(call_spec) if call_spec else None
         raise_set = inr
     elif kind == "4bet":
         call_set = _set(CALL_4BET_RANGE.get(t))
         raise_set = _set(FOURBET_RANGE.get(t))
-    elif kind == "call3bet":
+    elif kind in ("call3bet", "call_open", "call"):
         call_set, raise_set = inr, None
     elif kind == "call4bet":
         call_set, raise_set = inr, None

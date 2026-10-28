@@ -133,6 +133,34 @@ class TestComboCount(unittest.TestCase):
         self.assertEqual(_class_combo_count("AKo", board), 9)
 
 
+class TestPreflopStepRange(unittest.TestCase):
+    """3bet 节点的跟注范围必须是「平跟这次开池」，不是「跟注 3bet」。"""
+
+    def test_3bet_node_uses_flat_call_range(self):
+        from pokercoach.tree import preflop_range_matrix
+        r = preflop_range_matrix("CO", "UTG", "3bet")
+        self.assertTrue(r["ok"])
+        acts = {c["combo"]: c["act"] for c in r["cells"]}
+        self.assertEqual(acts["AA"], "raise")
+        self.assertEqual(acts["A8s"], "raise")   # 混合 3bet 牌按 100% 计入
+        self.assertEqual(acts["AJs"], "call")    # CO 对 UTG 的平跟范围
+        self.assertEqual(acts["22"], "fold")     # 不在 TT-33 平跟范围里
+        # 跟注 3bet 的旧范围会把 22-JJ / A2s-AQs 画成跟注 —— 不应出现
+        self.assertNotEqual(acts["22"], "call")
+        # 旧实现用 CALL_3BET_RANGE，会把 22-JJ 全画成跟注；
+        # 现在 22 是弃牌，这就是「不再变成一大片开池范围」的判别点。
+
+    def test_flat_call_node_is_not_open_range(self):
+        from pokercoach.tree import preflop_range_matrix
+        r = preflop_range_matrix("CO", "UTG", "call_open")
+        self.assertTrue(r["ok"])
+        self.assertIn("跟注", r["label"])
+        acts = {c["combo"]: c["act"] for c in r["cells"]}
+        # 平跟不是开池：AA/AKo 不在平跟范围，应该弃牌；A9s 在
+        self.assertEqual(acts["A9s"], "call")
+        self.assertEqual(acts["AA"], "fold")
+
+
 class TestTreeIntegration(unittest.TestCase):
     """有数据文件时跑一遍真实节点：范围过滤 + 频率 + 诈唬计划都要在。"""
 
