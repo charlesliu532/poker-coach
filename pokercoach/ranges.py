@@ -185,3 +185,16 @@ def combo_count(text: str) -> float:
 def remove_blocked(combos, board_cards) -> list[tuple[int, int, float]]:
     dead = set(board_cards)
     return [(a, b, w) for a, b, w in combos if a not in dead and b not in dead]
+
+
+_RANK_CH = "23456789TJQKA"
+
+
+def combo_to_hand(c1: int, c2: int) -> str:
+    """(牌1, 牌2) 的整数编码 → 手牌字符串，如 AKo / AKs / AA。"""
+    r1, s1 = c1 // 4, c1 % 4
+    r2, s2 = c2 // 4, c2 % 4
+    if _RANK_CH[r1] == _RANK_CH[r2]:
+        return _RANK_CH[r1] * 2
+    hi, lo = max(r1, r2), min(r1, r2)
+    return _RANK_CH[hi] + _RANK_CH[lo] + ("s" if s1 == s2 else "o")

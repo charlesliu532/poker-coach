@@ -68,6 +68,9 @@
       "threebet": 7,
       "call3bet": 55,
       "fourbet": 2
+    },
+    "BTN": {
+      "vpip": 99
     }
   },
   "preflop_width": {
@@ -94,25 +97,6 @@
     }
   },
   "simplify": {
-    "_说明": "分街阈值：翻前档位间距25要求严，翻后间距20放宽容忍。尺度>1个的节点强制混合。",
-    "levels_pre": [
-      100,
-      75,
-      50,
-      25,
-      0
-    ],
-    "levels_post": [
-      100,
-      80,
-      60,
-      40,
-      20,
-      0
-    ],
-    "threshold_pre": 2,
-    "threshold_post": 8,
-    "force_mixed_if_multi_sizing": true,
-    "mix_threshold": 2
+    "threshold_post": 20
   }
 }

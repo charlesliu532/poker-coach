@@ -17,6 +17,7 @@ from .equity import equity as equity_fn
 from .equity import equity_multi
 from .ingest import ingest
 from .store import Store
+from .paths import data_path
 
 WEB_DIR = Path(__file__).parent / "web"
 _INGEST_LOCK = threading.Lock()
@@ -24,6 +25,20 @@ _LEAK_CACHE: dict = {"at": 0.0, "data": None}
 _RANGE_CACHE: dict = {}
 _COACH_CACHE: dict = {}
 _SIM: dict = {"n": 0, "hands": {}}
+
+
+def _sanitize(o):
+    """把 NaN/Infinity/不可序列化对象转成安全值。"""
+    import math
+    if isinstance(o, float):
+        return o if math.isfinite(o) else None
+    if isinstance(o, dict):
+        return {k: _sanitize(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [_sanitize(v) for v in o]
+    if isinstance(o, (str, int, bool)) or o is None:
+        return o
+    return str(o)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -47,7 +62,16 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _json(self, data, code: int = 200):
-        self._send(code, json.dumps(data, ensure_ascii=False, allow_nan=False, default=lambda o: None).encode())
+        # NaN/Infinity 不是合法 JSON，前端 JSON.parse 会整页失败。
+        # 用 default 把非序列化对象转成字符串，用 allow_nan=False 暴露真问题，
+        # 但兜底一次：真的含 NaN 就整体清洗后重序列化，不让整个请求 500。
+        try:
+            body = json.dumps(data, ensure_ascii=False, allow_nan=False,
+                              default=lambda o: None).encode()
+        except (ValueError, TypeError):
+            body = json.dumps(_sanitize(data), ensure_ascii=False,
+                              allow_nan=False, default=str).encode()
+        self._send(code, body)
 
     def _error(self, msg: str, code: int = 400):
         self._json({"error": msg}, code)
@@ -68,6 +92,14 @@ class Handler(BaseHTTPRequestHandler):
         url = urlparse(self.path)
         qs = {k: v[0] for k, v in parse_qs(url.query).items()}
         try:
+            # ── 只接受本机来源 ──
+            _host = (self.headers.get("Host") or "").split(":")[0].strip().lower()
+            if _host not in ("127.0.0.1", "localhost", "::1", ""):
+                return self._error("bad host", 403)
+            _origin = self.headers.get("Origin")
+            if _origin and not _origin.startswith(("http://127.0.0.1", "http://localhost")):
+                return self._error("bad origin", 403)
+
             if url.path == "/":
                 return self._static("index.html")
             if url.path.startswith("/static/"):
@@ -75,8 +107,11 @@ class Handler(BaseHTTPRequestHandler):
             if url.path == "/api/rules/history":
                 return self._json({"history": self.store.rule_history(int(qs.get("limit", 50)))})
             if url.path == "/api/adjustments":
-                from .playertypes import load_adjustments
-                return self._json(load_adjustments())
+                from . import config as _cfg
+                return self._json({"cfg": _cfg.load(), "version": _cfg.version()})
+            if url.path == "/api/debug/effective-config":
+                from . import config as _cfg
+                return self._json(_cfg.effective_report())
             if url.path == "/api/scenarios":
                 from .playertypes import compare_scenarios
                 return self._json(compare_scenarios(
@@ -203,9 +238,9 @@ class Handler(BaseHTTPRequestHandler):
                                    "semantics": ls.semantics, "describe": _lk.describe(ls)})
             if url.path == "/api/tree":
                 from . import tree as tree_mod
-                tdir = Path("data/tree")
+                tdir = data_path("tree")
                 if not (tdir / "rules.csv").exists():
-                    tdir = Path(__file__).resolve().parent.parent / "data" / "tree"
+                    tdir = data_path("tree")
                 try:
                     out = tree_mod.grid(
                         tdir,
@@ -319,7 +354,7 @@ class Handler(BaseHTTPRequestHandler):
                 from .evaluate import auto_plan
                 from .treemismatch import analyze as _mm
                 from pathlib import Path as _P
-                tdir = _P(__file__).resolve().parent.parent / "data" / "tree"
+                tdir = data_path("tree")
                 try:
                     mm = _mm(self.store, tdir, 10)
                 except Exception:
@@ -330,7 +365,7 @@ class Handler(BaseHTTPRequestHandler):
                 from .evaluate import evaluate
                 from .treemismatch import analyze as _mm
                 from pathlib import Path as _P
-                tdir = _P(__file__).resolve().parent.parent / "data" / "tree"
+                tdir = data_path("tree")
                 try:
                     mm = _mm(self.store, tdir, 10)
                 except Exception:
@@ -339,7 +374,7 @@ class Handler(BaseHTTPRequestHandler):
             if url.path == "/api/tree-mismatch":
                 from .treemismatch import analyze
                 from pathlib import Path as _P
-                tdir = _P(__file__).resolve().parent.parent / "data" / "tree"
+                tdir = data_path("tree")
                 return self._json(analyze(self.store, tdir,
                                           int(qs.get("min_n", 12)), int(qs.get("limit", 40))))
             if url.path == "/api/leaks":
@@ -410,6 +445,13 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         url = urlparse(self.path)
         try:
+            # ── 本地服务防护：只接受本机来源，挡住恶意网页/DNS rebinding ──
+            _host = (self.headers.get("Host") or "").split(":")[0].strip().lower()
+            if _host not in ("127.0.0.1", "localhost", "::1", ""):
+                return self._error("bad host", 403)
+            _origin = self.headers.get("Origin")
+            if _origin and not _origin.startswith(("http://127.0.0.1", "http://localhost")):
+                return self._error("bad origin", 403)
             data = self._body()
             if url.path == "/api/locks":
                 from . import locks as _lk
@@ -438,7 +480,7 @@ class Handler(BaseHTTPRequestHandler):
                 txt = b.get("text") or ""
                 if not txt.strip():
                     return self._error("文件是空的", 400)
-                root = _P(__file__).resolve().parent.parent / "data"
+                root = data_path()
                 out = save_and_import(
                     self.store, root,
                     platform=b.get("platform", ""), stakes=b.get("stakes", ""),
@@ -685,9 +727,7 @@ class Handler(BaseHTTPRequestHandler):
             filters["street"] = {"flop": "翻牌", "turn": "转牌", "river": "河牌"}.get(
                 data["street"], data["street"])
 
-        root = Path("data/tree")
-        if not (root / "rules.csv").exists():
-            root = Path(__file__).resolve().parent.parent / "data" / "tree"
+        root = data_path("tree")
 
         try:
             qs = spots.make_questions(root, n=3, filters=filters)
@@ -779,7 +819,7 @@ class Handler(BaseHTTPRequestHandler):
         import csv as _csv
         from pathlib import Path as _P
 
-        tdir = _P(__file__).resolve().parent.parent / "data" / "tree"
+        tdir = data_path("tree")
         path = tdir / "rules.csv"
         if not path.exists():
             return {"rules": [], "counts": {"total": 0}}
@@ -962,7 +1002,7 @@ def _warm_caches(store: Store) -> None:
         from .treemismatch import analyze as _mm
         from .evaluate import evaluate as _ev
 
-        tdir = _P(__file__).resolve().parent.parent / "data" / "tree"
+        tdir = data_path("tree")
         mm = _mm(store, tdir, 10)
         _ev(store, tdir, store_leaks(store), mm)
     except Exception:

@@ -4,7 +4,14 @@
 # 否则会连开多个实例互相抢端口，全部崩溃。用「进程在不在」判断。
 cd "$(dirname "$0")" || exit 1
 LOCK=/tmp/pokercoach-guard.lock
-PY="$HOME/.dsh/dsh-runtimes/dsh-primary-runtime/dependencies/python/bin/python3"
+# 用系统 python3，别再写死某个运行时路径（换机器必挂）
+PY="$(command -v python3 || true)"
+if [ -z "$PY" ]; then
+  for c in /usr/bin/python3 /usr/local/bin/python3; do
+    [ -x "$c" ] && PY="$c" && break
+  done
+fi
+[ -z "$PY" ] && { echo "找不到 python3"; exit 1; }
 LOG=/tmp/pokercoach_serve.log
 
 if [ -f "$LOCK" ]; then

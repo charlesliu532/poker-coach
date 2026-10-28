@@ -34,3 +34,6 @@ data/coach.sqlite-*
 # 私密笔记与课程转录（不公开）
 data/notes/
 data/transcripts/
+
+# 旧的 AppleScript 壳（硬编码路径 + app-in-app），已废弃
+app/

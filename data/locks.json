@@ -1,5 +1,15 @@
 {
   "semantics": "best_response",
   "hero": "",
-  "constraints": []
+  "constraints": [
+    {
+      "pos": "BB",
+      "ctype": "range",
+      "payload": "",
+      "player_type": "松凶",
+      "stack": "*",
+      "note": "松凶",
+      "created": 1793209653.583319
+    }
+  ]
 }

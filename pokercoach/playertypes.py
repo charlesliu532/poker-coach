@@ -15,6 +15,8 @@ from __future__ import annotations
 import json as _json
 from pathlib import Path
 
+from .paths import data_path
+
 CAVEAT = (
     "课程原文：本节所涉及的范围仅供说明方向之用，切勿直接照搬。"
     "真正需要掌握的是驱动调整的底层逻辑，而非具体数值。——《Preflop Xploits》M04-L01"
@@ -361,7 +363,7 @@ def compare_scenarios(board: str, type_id: str, hero_pos: str = "BTN",
     return out
 
 # ── 可编辑配置：data/tree/adjustments.json ────────────────────
-_CFG_PATH = Path(__file__).resolve().parent.parent / "data" / "tree" / "adjustments.json"
+_CFG_PATH = data_path("tree", "adjustments.json")
 
 
 def load_adjustments() -> dict:

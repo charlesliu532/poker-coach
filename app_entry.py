@@ -29,17 +29,61 @@ def user_data_dir() -> Path:
     return d
 
 
+# 版本戳文件：记录上次铺入的数据版本，只在新版本时才覆盖
+_SEED_STAMP = ".seed_version"
+
+
+def _pkg_version() -> str:
+    """随包数据的版本标识（用 tree/buckets.csv 的大小+mtime 做指纹）。"""
+    try:
+        f = BASE / "data" / "tree" / "buckets.csv"
+        st = f.stat()
+        return f"{int(st.st_size)}-{int(st.st_mtime)}"
+    except Exception:
+        return "0"
+
+
 def seed_data(target: Path):
-    """第一次运行：把随包的数据（策略树 / 笔记 / 转写）拷到用户目录。"""
+    """把随包数据铺到用户目录。
+
+    重要：**绝不无条件删除用户目录**。
+    - 用户改过的文件（策略树、桶表、笔记）必须保住
+    - 只在「随包数据版本变了」时铺一次，且只补缺失的文件
+    """
+    stamp_file = target / _SEED_STAMP
+    pkg_ver = _pkg_version()
+    try:
+        old_ver = stamp_file.read_text(encoding="utf-8").strip()
+    except Exception:
+        old_ver = ""
+
+    if old_ver == pkg_ver:
+        return                      # 同一版本，什么都不做
+
     for sub in ("tree", "notes", "transcripts"):
         src = BASE / "data" / sub
         dst = target / sub
         if not src.exists():
             continue
-        if sub == "tree" or not dst.exists():
-            if dst.exists():
-                shutil.rmtree(dst, ignore_errors=True)
-            shutil.copytree(src, dst, dirs_exist_ok=True)
+        dst.mkdir(parents=True, exist_ok=True)
+        # 逐文件补齐：已有的不覆盖，缺的才拷
+        for item in src.rglob("*"):
+            if item.is_dir():
+                continue
+            rel = item.relative_to(src)
+            out = dst / rel
+            if out.exists():
+                continue            # ← 用户可能改过，保留
+            out.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                shutil.copy2(item, out)
+            except Exception:
+                pass
+
+    try:
+        stamp_file.write_text(pkg_ver, encoding="utf-8")
+    except Exception:
+        pass
 
 
 def ensure_index(root: Path):
@@ -122,6 +166,8 @@ def main():
     import atexit
     atexit.register(lambda: lock.exists() and lock.unlink())
 
+    # 注入统一数据根：打包后 __file__ 在临时目录，不能用来定位数据
+    os.environ["POKER_DATA_ROOT"] = str(root)
     seed_data(root)
     ensure_index(root)
 

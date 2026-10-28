@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 import csv
+from .paths import data_path, data_root
 import json, itertools
 from collections import Counter
 from pathlib import Path
@@ -235,10 +236,12 @@ def apply_tendency(cells, node_action, vs_type):
     if not vs_type or vs_type in ("*", "任意"):
         return cells, None
     try:
-        from .playertypes import TENDENCY_ADJUST
+        from . import config as _cfg
+        adj = (_cfg.get("tendency", vs_type)
+               or (_cfg.DEFAULT.get("tendency") or {}).get(vs_type))
     except Exception:
-        return cells, None
-    adj = TENDENCY_ADJUST.get(vs_type)
+        from .playertypes import TENDENCY_ADJUST
+        adj = TENDENCY_ADJUST.get(vs_type)
     if not adj:
         return cells, None
 
@@ -776,10 +779,10 @@ SIMPLE_POST = [100, 80, 60, 40, 20, 0]
 
 
 def _simplify_cfg() -> dict:
+    """只从 config 读，不再自己拼路径。"""
     try:
-        cfg = json.loads((Path(__file__).resolve().parent.parent / "data" / "tree"
-                          / "adjustments.json").read_text(encoding="utf-8"))
-        return cfg.get("simplify") or {}
+        from . import config as _cfg
+        return _cfg.get("simplify") or {}
     except Exception:
         return {}
 
@@ -1111,15 +1114,16 @@ def build_node_mix(hits: list, buckets: list, hand_class: str, node_action: str,
         # 类别表用手牌类别查（翻后），手牌表用 AA/AKs 查（翻前）
         is_cat = bool(set(t) & _CAT_KEYS)
         key = (hand_cat or hand_class) if is_cat else hand_class
-        v = t.get(key)
-        if v is None:
-            v = t.get("其他", 0)
+        # 关键：区分「这张表真的写了我这个牌力类」还是「只是兜底的其他」
+        exact = key in t
+        v = t.get(key) if exact else t.get("其他", 0)
         if not v:
             continue
         parts.append({"rule": h,
                       "sizing": h.get("sizing") or "",
                       "action": h.get("node_action") or node_action,
-                      "pct": float(v)})
+                      "pct": float(v),
+                      "hand_hit": exact})
 
     if not parts:
         return []
@@ -1133,8 +1137,27 @@ def build_node_mix(hits: list, buckets: list, hand_class: str, node_action: str,
     else:
         rest = 100.0 - total             # 剩下的 = 过牌/弃牌
 
-    # ── 先收敛：同一节点最多保留 3 个尺度（来源最可靠的），
-    #    否则 9 个来源冲突会把每个都稀释成 2%。这是「抽象」而不是「平均」。──
+    # ── 同一节点命中很多条规则时，先按「来源可靠度 + 是否手牌级表」选主规则。
+    #    不能把 32 条规则平均：不同规则的桶表覆盖的牌力类不一样，
+    #    结果会出现「纯空气下注率高于暗三条」这种倒挂。──
+    if len(parts) > 1:
+        def _quality(x):
+            src = (x["rule"].get("source") or "")
+            rank = {"求解": 6, "课程": 5, "课程+蓝图": 5, "蓝图": 4,
+                    "Upswing": 4, "Smash": 4, "红线蓝图": 4,
+                    "Overbankroll": 4, "推导": 1}.get(src, 0)
+            has_hand = 1 if x.get("hand_hit") else 0
+            return (has_hand, rank)
+        best = max(_quality(p_) for p_ in parts)
+        keep = [p_ for p_ in parts if _quality(p_) == best]
+        dropped = sum(p_["pct"] for p_ in parts if _quality(p_) != best)
+        if dropped > 0 and keep:
+            tw = sum(p_["pct"] for p_ in keep) or 1
+            for p_ in keep:
+                p_["pct"] += dropped * p_["pct"] / tw
+        parts = keep
+
+    # ── 再收敛到最多 3 个尺度 ──
     if len(parts) > 3:
         _RANK = {"课程": 5, "课程+蓝图": 5, "求解": 6, "蓝图": 4,
                  "Upswing": 4, "Smash": 4, "红线蓝图": 4, "Overbankroll": 4, "推导": 1}
@@ -1207,6 +1230,45 @@ def build_node_mix(hits: list, buckets: list, hand_class: str, node_action: str,
         parts = list(merged.values())
 
     _stab_hand = {"hand": hand_class, "cat": hand_cat or ""}
+    # ── 用 alpha + surplus 校准「诈唬该占多少、哪些牌该诈唬」──
+    # 原则：配额由 alpha 定，选牌由 EV surplus 排序定。
+    # 但若与桶表结果相差不大（<8 个点），就保持混合 —— 不要把简化策略推翻。
+    try:
+        from .fastcalc import bluff_ratio_target, bluff_surplus
+        nz = [x for x in parts if float(x.get("pct") or 0) > 0]   # parts 里没有 kind 字段
+        if nz:
+            size_pct = 33.0
+            import re as _re2
+            m2 = _re2.findall(r"(\d{1,3})", str(nz[0].get("sizing") or ""))
+            if m2:
+                size_pct = float(m2[0])
+            target_bluff_share = bluff_ratio_target(size_pct)
+            # 这手牌是「价值类」还是「空气类」
+            is_air = (hand_cat or "").strip() in ("纯空气", "空气", "后门空气", "卡顺")
+            bucket_pct = sum(x["pct"] for x in nz)
+            # 桶表说这手该下注多少 vs alpha 给的配额
+            # 桶表给的这手牌下注率，和 alpha 要的配额比一比
+            if is_air:
+                # 空气的「合理上限」= 下注范围 × 诈唬配额
+                theo = bucket_pct * target_bluff_share / max(1e-6, 1 - target_bluff_share)
+                gap = bucket_pct - theo
+                if abs(gap) >= 8:
+                    # 差异大才校准：把空气压到配额附近
+                    k = max(0.2, min(1.8, theo / max(1e-6, bucket_pct)))
+                    for x in nz:
+                        x["pct"] = round(x["pct"] * k, 1)
+                    _bluff_note = (f"空气按 alpha 配额校准：{bucket_pct:.0f}% → "
+                                   f"{sum(x['pct'] for x in nz):.0f}%"
+                                   f"（{size_pct:.0f}% 池，诈唬配额 {target_bluff_share*100:.0f}%）")
+                else:
+                    _bluff_note = (f"与桶表相差 {abs(gap):.0f} 个点，保持混合"
+                                   f"（配额 {target_bluff_share*100:.0f}%）")
+            else:
+                _bluff_note = f"价值类，配额 {target_bluff_share*100:.0f}% 由空气那侧填"
+    except Exception:
+        pass
+
+    _CALIB = {"note": locals().get("_bluff_note", "未进入校准分支")}
     out = []
     for p in parts:
         out.append({"action": p["action"], "label": p["sizing"],
@@ -1225,6 +1287,7 @@ def build_node_mix(hits: list, buckets: list, hand_class: str, node_action: str,
                                 hand_class, hand_cat or "")
             for x in out:
                 x["_stable"] = st
+                x["_calib"] = _CALIB.get("note")
     except Exception:
         pass
     return out
@@ -1277,7 +1340,7 @@ def preflop_range_matrix(pos: str, opp: str, kind: str = "open", vs_type: str = 
     _tab = None
     if inr is None:
         try:
-            _r, _b = _load(Path(__file__).resolve().parent.parent / "data" / "tree")
+            _r, _b = _load(data_root())
             cand = [r for r in _r if r.get("hero_pos") == pos and r.get("node_action") == "开池"
                     and r.get("status") != "retired"]
             # 优先用「简单GTO/E8 实测表」，其次 200bb，最后才用 RYE 推导表
@@ -1387,7 +1450,31 @@ def _locked_advice(locks, hero_pos, opp_pos, board_text, sizing, pot):
     try:
         from .locks import compile_ranges
         from .fastcalc import best_response
+        # 只有当「本节点的我方或对手」被锁定时才给建议；
+        # 锁了别的座位不能影响这一屏，否则用户会以为全盘都在变。
+        _hl = locks.get(hero_pos or "")
+        _ol = locks.get(opp_pos or "")
+        if not _hl and not _ol:
+            return None
         rr = compile_ranges(locks, hero_pos or "*", opp_pos or "*", pot)
+        # 对手形象 → 实际范围。只存 player_type 而不换算，等于没锁定。
+        try:
+            from .playertypes import PREFLOP_ADJUST, TENDENCY_ADJUST
+            opp_lock = locks.get(opp_pos or "")
+            if opp_lock and opp_lock.player_type and opp_lock.player_type != "*":
+                base = rr.get("villain_range") or ""
+                adj = TENDENCY_ADJUST.get(opp_lock.player_type) or {}
+                rr["villain_type"] = opp_lock.player_type
+                rr["villain_adj"] = adj
+                # 用形象调整后的范围（宽度随形象缩放）
+                rng = _typed_range(base, opp_lock.player_type)
+                if rng:
+                    rr["villain_range"] = rng
+                    rr["villain_src"] = f"形象 {opp_lock.player_type}"
+                # 我方范围内也扣掉被对手更紧范围挡掉的部分
+                rr["has_lock"] = True
+        except Exception:
+            pass
         if not rr.get("has_lock"):
             return None
         from .tree import parse_sizings as _ps
@@ -1396,9 +1483,33 @@ def _locked_advice(locks, hero_pos, opp_pos, board_text, sizing, pot):
             return None
         out = best_response(rr["hero_range"], rr["villain_range"],
                             board_text, base[0])
+        # 频率也要跟着对手形象走，不只是尺度
+        try:
+            from .fastcalc import refine_frequency
+            import re as _re
+            fm = _re.findall(r"(\d{1,3})", str(sizing or ""))
+            bf = float(fm[0]) if fm else 50.0
+            opp_type = ""
+            ol = locks.get(opp_pos or "")
+            if ol and ol.player_type:
+                opp_type = ol.player_type
+            fr = refine_frequency(bf, out.get("adv", 0), opp_type)
+            out["freq"] = fr["freq"]
+            out["base_freq"] = fr["base_freq"]
+            out["freq_why"] = fr["why"]
+        except Exception:
+            pass
         if not out.get("ok"):
             return None
         out["source"] = {"hero": rr["hero_src"], "villain": rr["villain_src"]}
+        # 基线（不锁定）对照：界面上要能看出「改了什么」
+        try:
+            out["baseline"] = {"sizing": base[0], "freq": (lambda _f: float(_f[0]) if _f else 50.0)(
+                __import__("re").findall(r"(\d{1,3})", str(sizing or "")))}
+        except Exception:
+            out["baseline"] = {"sizing": base[0], "freq": None}
+        out["opp_type"] = ((locks.get(opp_pos or "") or None).player_type
+                           if locks.get(opp_pos or "") else "*") or "*"
         return out
     except Exception:
         return None
@@ -1408,7 +1519,12 @@ def _live_advice(hero_pos, opp_pos, board_text, sizing, pot, role):
     """毫秒级范围优势 → 尺度微调。失败就返回 None，不影响主流程。"""
     if not board_text or len(board_text) < 6:
         return None
-    key = (hero_pos, opp_pos, board_text, sizing, pot, role)
+    try:
+        from . import config as _cfg
+        _cv = _cfg.version()
+    except Exception:
+        _cv = 0
+    key = (hero_pos, opp_pos, board_text, sizing, pot, role, _cv)
     if key in _LIVE_CACHE:
         return _LIVE_CACHE[key]
     try:
@@ -1586,3 +1702,25 @@ def size_pref(bucket: float, sizes: list) -> str:
     if bucket <= 25:
         return "偏小"
     return "中"
+
+
+# ══ 形象 → 范围（锁定用）══════════════════════════════════
+# 关键：只存 player_type 而不换算成范围，策略永远不会变。
+_TYPE_STRENGTH = {"紧凶": 0.72, "岩石": 0.55, "松凶": 1.15, "跟注站": 1.10,
+                  "受气包": 0.85, "娱乐玩家": 1.05, "标准": 1.0,
+                  "过度诈唬型": 1.0, "下注不足型": 0.9}
+
+
+def _typed_range(spec: str, type_name: str):
+    """按对手形象收缩范围：紧凶/岩石 只留牌力前 k%。"""
+    k = _TYPE_STRENGTH.get((type_name or "").strip())
+    if not k or k >= 1.0 or not spec:
+        return spec if k else None
+    try:
+        from .ranges import parse_range, combo_to_hand
+        combos = parse_range(spec)
+        combos.sort(key=lambda c: -_hand_strength(combo_to_hand(c[0], c[1])))
+        keep = max(1, int(len(combos) * k))
+        return ", ".join(sorted({combo_to_hand(c[0], c[1]) for c in combos[:keep]}))
+    except Exception:
+        return None

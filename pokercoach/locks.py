@@ -21,7 +21,9 @@ import time
 from dataclasses import dataclass, asdict, field
 from pathlib import Path
 
-LOCK_FILE = "data/locks.json"
+from .paths import data_path
+
+LOCK_FILE = "locks.json"
 
 SEMANTICS = ("constrained", "best_response", "one_sided")
 
@@ -87,7 +89,7 @@ _CACHE = {"at": 0.0, "data": None}
 
 
 def load(root: Path | None = None) -> LockSet:
-    p = (root or Path(".")) / LOCK_FILE
+    p = (root / LOCK_FILE) if root else data_path(LOCK_FILE)
     try:
         if p.exists():
             return LockSet.from_dict(json.loads(p.read_text(encoding="utf-8")))
@@ -97,7 +99,7 @@ def load(root: Path | None = None) -> LockSet:
 
 
 def save(ls: LockSet, root: Path | None = None) -> bool:
-    p = (root or Path(".")) / LOCK_FILE
+    p = (root / LOCK_FILE) if root else data_path(LOCK_FILE)
     try:
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps(ls.to_dict(), ensure_ascii=False, indent=2),
