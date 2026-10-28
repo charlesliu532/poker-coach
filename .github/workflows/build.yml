@@ -21,7 +21,15 @@ jobs:
         run: pip install pyinstaller numpy
 
       - name: 构建
-        run: python build_app.py
+        shell: pwsh
+        env:
+          PYTHONIOENCODING: utf-8
+          PYTHONUTF8: "1"
+        run: |
+          python -X utf8 build_app.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-ChildItem dist
+          if (-not (Test-Path "dist/扑克复盘台.exe")) { Write-Error "exe not found"; exit 1 }
 
       - name: 上传 exe
         uses: actions/upload-artifact@v4
@@ -44,7 +52,10 @@ jobs:
         run: pip install pyinstaller numpy
 
       - name: 构建二进制
-        run: python build_app.py
+        env:
+          PYTHONIOENCODING: utf-8
+          PYTHONUTF8: "1"
+        run: python -X utf8 build_app.py
 
       - name: 组装 .app（带图标）
         run: |

@@ -4,9 +4,19 @@
     python build_app.py            # 在当前平台打一个可执行文件
 产物在 dist/ 下。
 """
+import os
 import subprocess
 import sys
 from pathlib import Path
+
+# Windows 控制台默认不是 UTF-8，打印中文会 UnicodeEncodeError
+if sys.platform == "win32":
+    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 ROOT = Path(__file__).resolve().parent
 SEP = ";" if sys.platform == "win32" else ":"
@@ -23,7 +33,8 @@ args = [
     sys.executable, "-m", "PyInstaller",
     "--noconfirm", "--clean",
     "--onefile",
-    "--name", "扑克复盘台",
+    # Windows 对中文可执行名敏感，统一先用 ASCII 名，构建完再改名
+    "--name", "pokercoach" if sys.platform == "win32" else "扑克复盘台",
 ] + [
     a for src, dst in DATA_DIRS
     if (ROOT / src).exists()
@@ -38,6 +49,19 @@ args = [
     "--exclude-module", "scipy",
     str(ROOT / "app_entry.py"),
 ]
-print("运行：", " ".join(str(a) for a in args[:6]), "…")
+print("[build] PyInstaller ...", flush=True)
 subprocess.run(args, cwd=str(ROOT), check=True)
-print("\n完成，产物在 dist/")
+# Windows：把 pokercoach.exe 改名成「扑克复盘台.exe」
+if sys.platform == "win32":
+    src = ROOT / "dist" / "pokercoach.exe"
+    dst = ROOT / "dist" / "扑克复盘台.exe"
+    try:
+        if src.exists():
+            if dst.exists():
+                dst.unlink()
+            src.rename(dst)
+            print("[build] renamed ->", dst.name, flush=True)
+    except Exception as e:
+        print("[build] rename failed:", e, flush=True)
+
+print("[build] done -> dist/", flush=True)
