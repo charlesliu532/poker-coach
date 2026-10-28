@@ -1,0 +1,98 @@
+name: 打包扑克复盘台
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  workflow_dispatch:        # 也可以手动点按钮触发
+
+jobs:
+  # ── Windows 版 ──────────────────────────────────────────
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 装依赖
+        run: pip install pyinstaller numpy
+
+      - name: 构建
+        run: python build_app.py
+
+      - name: 上传 exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: 扑克复盘台-Windows
+          path: dist/扑克复盘台.exe
+          retention-days: 30
+
+  # ── Mac 版 ─────────────────────────────────────────────
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 装依赖
+        run: pip install pyinstaller numpy
+
+      - name: 构建二进制
+        run: python build_app.py
+
+      - name: 组装 .app（带图标）
+        run: |
+          APP="dist/扑克复盘台.app"
+          mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+          cp "dist/扑克复盘台" "$APP/Contents/MacOS/扑克复盘台"
+          chmod +x "$APP/Contents/MacOS/扑克复盘台"
+          if [ -f "app/扑克复盘台.app/Contents/Resources/applet.icns" ]; then
+            cp "app/扑克复盘台.app/Contents/Resources/applet.icns" "$APP/Contents/Resources/icon.icns"
+          fi
+          cat > "$APP/Contents/Info.plist" <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>CFBundleExecutable</key><string>扑克复盘台</string>
+            <key>CFBundleIdentifier</key><string>local.poker-coach.app</string>
+            <key>CFBundleName</key><string>扑克复盘台</string>
+            <key>CFBundleIconFile</key><string>icon</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>CFBundleShortVersionString</key><string>1.0</string>
+            <key>LSMinimumSystemVersion</key><string>11.0</string>
+            <key>NSHighResolutionCapable</key><true/>
+          </dict></plist>
+          PLIST
+          echo -n "APPL????" > "$APP/Contents/PkgInfo"
+          codesign --force --deep --sign - "$APP" || true
+
+      - name: 打 zip
+        run: |
+          cd dist
+          zip -rq 扑克复盘台-Mac.zip "扑克复盘台.app"
+
+      - name: 上传 zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: 扑克复盘台-Mac
+          path: dist/扑克复盘台-Mac.zip
+          retention-days: 30
+
+  # ── 发版时自动挂到 Releases ────────────────────────────
+  release:
+    needs: [windows, macos]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            **/扑克复盘台.exe
+            **/扑克复盘台-Mac.zip

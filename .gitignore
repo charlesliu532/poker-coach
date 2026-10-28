@@ -1,0 +1,36 @@
+# 构建产物
+dist/
+build/
+*.spec
+__pycache__/
+*.pyc
+
+# 运行时数据
+data/transcripts/*.mp4
+data/transcripts/*.mkv
+data/tree/.scenes.json
+coach.sqlite
+data/demo.sqlite
+
+# 备份
+*.bak
+
+# 系统
+.DS_Store
+
+# 索引与用户数据（首次运行会自己重建，不提交）
+data/coach.sqlite
+data/hh/
+data/.bak-*/
+
+# 虚拟环境
+.venv/
+venv/
+
+
+# SQLite 临时文件
+data/coach.sqlite-*
+
+# 私密笔记与课程转录（不公开）
+data/notes/
+data/transcripts/

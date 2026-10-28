@@ -1,0 +1,361 @@
+{
+ "weeks": [
+  {
+   "week": 1,
+   "theme": "翻前基础 / 3bet 与 4bet / 翻牌持续下注",
+   "days": [
+    {
+     "day": 1,
+     "topic": "翻前基础",
+     "read": [
+      {
+       "doc_id": 1,
+       "title": "01 Preflop Chart Shortcut — 01 翻前图表快捷方法-328d6a55",
+       "heading": "1. RFI 范围的“逐级平移”法则",
+       "preview": "每个位置的 RFI 范围并非毫无关联，而是基于前一个位置的范围进行规律性扩展。\n- 基础设定：记住一个前位（EP）的基础范围。\n- 位置后移：每向后一个位置，各个手牌类别就放宽一个等级（One tick looser）。\n  - 例如：UTG（9人桌）只有特定的高牌和对子；到 UTG+1 时，AJo、KQo、65s 开"
+      }
+     ],
+     "cards_target": 4,
+     "minutes": 25
+    },
+    {
+     "day": 2,
+     "topic": "翻前基础",
+     "read": [
+      {
+       "doc_id": 1,
+       "title": "01 Preflop Chart Shortcut — 01 翻前图表快捷方法-328d6a55",
+       "heading": "牌例 1：前位开池遭遇中位 3-Bet",
+       "preview": "| 范围/手牌 | 行动 | 目的/说明 | 街道 |\n| 55-99, 56s-89s, QJs | Hero (UTG) 开池加注 | 正常 RFI | 翻牌前 |\n| 强极化/线性范围（推测） | Villain (HJ) 3-Bet | 施加压力 | 翻牌前 |\n| 面对 3-Bet | Hero 决策 | 根"
+      }
+     ],
+     "cards_target": 4,
+     "minutes": 25
+    },
+    {
+     "day": 3,
+     "topic": "翻前基础",
+     "read": [
+      {
+       "doc_id": 1,
+       "title": "01 Preflop Chart Shortcut — 01 翻前图表快捷方法-328d6a55",
+       "heading": "牌例 2：后位开池遭遇盲注区 3-Bet",
+       "preview": "| 目的/说明 | 行动 | 范围/手牌 | 街道 |\n| 偷盲/扩大范围 | Hero (CO) 开池加注 | 22-88, 各类同花连牌等 | 翻牌前 |\n| 施加压力 | Villain (BB) 3-Bet | 防守并夺取主动权 | 翻牌前 |\n| 22-88、大部分同花连牌（直到对手可能用来3-Bet的99）"
+      }
+     ],
+     "cards_target": 4,
+     "minutes": 25
+    },
+    {
+     "day": 4,
+     "topic": "3bet 与 4bet",
+     "read": [
+      {
+       "doc_id": 66,
+       "title": "5 - Hotspot 4Bet Shoving 30BB BTN vs SB-23cd6a55",
+       "heading": "术语对照参考",
+       "preview": "- 3-Bet：三次加注\n- 4-Bet：四次加注\n- Shove：全下\n- Effective Stack：有效筹码\n- Polar Range：极化范围\n- Air：空气牌\n- GTO：博弈论最优\n- Bluff：诈唬\n- Induce：引诱\n- EV：数学期望\n- ATC：任意两张牌\n- Stack-off：搏池"
+      }
+     ],
+     "cards_target": 4,
+     "minutes": 25
+    },
+    {
+     "day": 5,
+     "topic": "翻牌持续下注",
+     "read": [
+      {
+       "doc_id": 73,
+       "title": "9. Turn Barrel Exercise - 转牌圈持续下注练习-21ed6a55",
+       "heading": "1.2 分析步骤",
+       "preview": "1. 选择代表性翻牌面\n   选择10个广泛代表常见Board类型（湿面/干面、Broadway、高张、低张、听花面等）的翻牌。\n1. 确定Flop Cbet尺度与Turn Runout组合\n   - 在Flop上分不同下注尺度（如B33/B50/B75/B150）。\n   - 对每种Flop，这样设定两个典型Turn"
+      }
+     ],
+     "cards_target": 4,
+     "minutes": 25
+    }
+   ]
+  },
+  {
+   "week": 2,
+   "theme": "翻牌持续下注 / 转牌与双枪",
+   "days": [
+    {
+     "day": 1,
+     "topic": "翻牌持续下注",
+     "read": [
+      {
+       "doc_id": 73,
+       "title": "9. Turn Barrel Exercise - 转牌圈持续下注练习-21ed6a55",
+       "heading": "2.1 频率对比示范表格",
+       "preview": "| Population Turn Barrel频率 | GTO Turn Barrel频率 | 情景 |\n| ≈50% | ≈59-60% | Flop小尺度Cbet后 |\n| ≈59% | ≈59-60% | Flop大尺度Cbet后 |\n- 结论1： 在小尺度Flop Cbet后，人口在Turn上的Barrel远"
+      }
+     ],
+     "cards_target": 4,
+     "minutes": 25
+    },
+    {
+     "day": 2,
+     "topic": "翻牌持续下注",
+     "read": [
+      {
+       "doc_id": 21,
+       "title": "16 Flop Play — 16 翻牌圈打法-328d6a55",
+       "heading": "牌例三：坚果优势反转（4-4-2 公对面 与 9-8-5 牌面）",
+       "preview": "- 解析：在这两类牌面上，如果测试 30% 混合策略、70% 混合策略与 100% 范围下注 33% Pot 的数学期望（EV），会发现范围下注会损失显著的 EV。\n  - 在 4-4-2 面，不利位置（OP）拥有更多的 2x 组合，掌握了微弱的坚果优势。\n  - 在 9-8-5 面，不利位置拥有 67o 构成的坚果顺"
+      }
+     ],
+     "cards_target": 4,
+     "minutes": 25
+    },
+    {
+     "day": 3,
+     "topic": "翻牌持续下注",
+     "read": [
+      {
+       "doc_id": 21,
+       "title": "16 Flop Play — 16 翻牌圈打法-328d6a55",
+       "heading": "六、实战清单与练习",
+       "preview": "在实战中，可参考以下行动清单（针对单次加注底池 IP vs BB）：\n| 核心理由 | 牌面结构特征 | 行动决策 | 下注尺度 |\n| 简化策略，剥削对手过度弃牌 | A/K/Q/J/T 高且无极端连接性 | 持续下注 (Cbet) | 33% Pot |\n| 保护范围，避免被 Check-Raise 惩罚 | 小牌"
+      }
+     ],
+     "cards_target": 4,
+     "minutes": 25
+    },
+    {
+     "day": 4,
+     "topic": "转牌与双枪",
+     "read": [
+      {
+       "doc_id": 61,
+       "title": "4b pot OOP PFC 翻後核心觀念與策略建構-3bcd6a55",
+       "heading": "1. 学习情境与范围设定",
+       "preview": "我们将翻前的行动设定如下（与常见的一般较小尺度设定一致）：\n- 初始行动：按钮位 (BTN) 开池加注 (Open Raise) 至 2.5bb。\n- 3-Bet：小盲位 (SB) 3次加注至 18bb。\n- 4-Bet：BTN 4次加注至 22bb（较小的 4-Bet 尺度）。\n- 跟注：SB 选择跟注 (Call)"
+      }
+     ],
+     "cards_target": 4,
+     "minutes": 25
+    },
+    {
+     "day": 5,
+     "topic": "转牌与双枪",
+     "read": [
+      {
+       "doc_id": 61,
+       "title": "4b pot OOP PFC 翻後核心觀念與策略建構-3bcd6a55",
+       "heading": "为什么会出现这种变化？",
+       "preview": "在没有位置优势 (Out of Position) 的情况下，我们极难实现自己的手牌权益 (Hand Equity)。因为权益实现率 (EQR) 低下，我们的策略两极化：\n1. 直接弃牌 (Fold)：放弃边缘牌，减少损失。\n1. 过牌加注 (Check-Raise) 甚至全下 (All-in)：通过激进的行动打掉位置"
+      }
+     ],
+     "cards_target": 4,
+     "minutes": 25
+    }
+   ]
+  },
+  {
+   "week": 3,
+   "theme": "河牌与抓诈唬 / 多人底池",
+   "days": [
+    {
+     "day": 1,
+     "topic": "河牌与抓诈唬",
+     "read": [
+      {
+       "doc_id": 7,
+       "title": "08 How Much are Hands Worth — 08 手牌价值评估-328d6a55",
+       "heading": "五、常见误区与纠偏",
+       "preview": "- 误区：在对手转牌过牌后，仍然低估自己第二大对子（如本例中的 Jx）或弱顶对的价值，在河牌圈下注过小甚至不敢下注。\n- 纠偏：如果对手在转牌圈过牌排除了强价值牌，那么你在砖块河牌圈的中等牌力价值将呈指数级上升。必须根据对手的封顶范围，果断使用大尺度（75% Pot 甚至超池）进行价值剥削。\n- 误区：在连续过牌的局面"
+      }
+     ],
+     "cards_target": 4,
+     "minutes": 25
+    },
+    {
+     "day": 2,
+     "topic": "河牌与抓诈唬",
+     "read": [
+      {
+       "doc_id": 7,
+       "title": "08 How Much are Hands Worth — 08 手牌价值评估-328d6a55",
+       "heading": "六、实战清单与练习",
+       "preview": "河牌价值评估清单：\n- [ ] 1. 明确对手当前范围是否封顶（他在上一条街过牌了吗？）。\n- [ ] 2. 罗列对手范围的核心（如：他现在主要是弱对子和 A 高牌吗？）。\n- [ ] 3. 评估我的手牌在对抗该核心范围时的绝对优势。\n- [ ] 4. 选择能让对手核心范围痛苦跟注的最大尺度。\n课后练习：在解算器（如 "
+      }
+     ],
+     "cards_target": 4,
+     "minutes": 25
+    },
+    {
+     "day": 3,
+     "topic": "河牌与抓诈唬",
+     "read": [
+      {
+       "doc_id": 43,
+       "title": "23 Range Betting Summary — 23 范围下注总结-328d6a55",
+       "heading": "2. 转牌圈（Turn）决策逻辑",
+       "preview": "转牌的策略高度依赖掉落的公共牌类型：\n- 白板转牌（Bricks）：IP 玩家的坚果优势从翻牌延续。通常采用超池下注（Overbet）或过牌（Check）的两极化策略，且不需要慢玩（Trapping）。如果对手过度弃牌，可以在所有白板上直接超池下注或过牌。\n- 成牌/听牌击中（Completing/Draws Hitt"
+      }
+     ],
+     "cards_target": 4,
+     "minutes": 25
+    },
+    {
+     "day": 4,
+     "topic": "河牌与抓诈唬",
+     "read": [
+      {
+       "doc_id": 43,
+       "title": "23 Range Betting Summary — 23 范围下注总结-328d6a55",
+       "heading": "3. 河牌圈（River）决策逻辑",
+       "preview": "河牌极度复杂，需要关注以下核心点：\n- 评估诈唬牌的连接性：评估我们在转牌的诈唬牌有多少在河牌成牌。这决定了我们的诈唬频率与创新程度。\n- 绝对牌力优先（针对人类玩家）：在面对人类时，保护整个范围的均衡不如评估自己手牌面对对手特定范围的绝对牌力（Absolute Strength）重要。\n- 抓诈唬的阻挡牌效应：当面对"
+      }
+     ],
+     "cards_target": 4,
+     "minutes": 25
+    },
+    {
+     "day": 5,
+     "topic": "多人底池",
+     "read": [
+      {
+       "doc_id": 11,
+       "title": "1.2 GTO处理多人底池的问题（The Issues with GTO in Multiway Spots）-248d6a55",
+       "heading": "总结",
+       "preview": "- GTO（博弈论最优）仅在理论与2人桌的理想状态下最为稳健。\n- 实际扑克环境（多人局、抽水、位置变化等）导致GTO表并不等价于最优盈利策略。\n- 真正的高水平扑克需要基于GTO基础，结合对手动态、自身盈利目标及现实抽水等实际情况做动态调整。\n- 破除GTO神话，学会“因地制宜”，才是真正盈利玩家的成长之路。\n---"
+      }
+     ],
+     "cards_target": 4,
+     "minutes": 25
+    }
+   ]
+  },
+  {
+   "week": 4,
+   "theme": "剥削与调整 / 心理与资金 / 其他",
+   "days": [
+    {
+     "day": 1,
+     "topic": "剥削与调整",
+     "read": [
+      {
+       "doc_id": 12,
+       "title": "1.3 HUD和玩家数据（3. HUDs and Player Statistics）-248d6a55",
+       "heading": "1.2 统计学的错觉与陷阱",
+       "preview": "- 简单案例：疾病测试的统计误区举例：某疾病检测准确率99%，该病仅1%的人患病。当你的测试结果为阳性，实际患病概率只有50%，而不是直观理解的99%。原因在于假阳性的数量与实际患者持平。\n- HUD里的“假阳性”当你在几十个、上百个统计数据中找“异常”，总会有统计噪音（Noise），这就像数据中的假阳性。许多玩家看到"
+      }
+     ],
+     "cards_target": 4,
+     "minutes": 25
+    },
+    {
+     "day": 2,
+     "topic": "剥削与调整",
+     "read": [
+      {
+       "doc_id": 12,
+       "title": "1.3 HUD和玩家数据（3. HUDs and Player Statistics）-248d6a55",
+       "heading": "结论",
+       "preview": "HUD本是扑克剥削的利器，但极易因统计学误区而误入歧途。我们要从单点数据分析升级到全局归纳与玩家画像，学会用最小的数据读懂对手最大的信息，最终化繁为简，回归扑克本质——策略推演与人性博弈。\n> 专业思考：理解HUD数据仅是剥削之基础，真正的高水平Poker思维在于理解统计背后的人性和行动线（Line），用数据佐证你的推"
+      }
+     ],
+     "cards_target": 4,
+     "minutes": 25
+    },
+    {
+     "day": 3,
+     "topic": "心理与资金",
+     "read": [
+      {
+       "doc_id": 351,
+       "title": "[[1) Course Introduction-A-Game 扑克大师班：课程导论与高效能思维基础]]-2c3d6a55",
+       "heading": "三、A-Game 系统架构（六大模块）",
+       "preview": "本课程按逻辑顺序分为六个模块，旨在系统性地重塑你的扑克生涯：\n| 模块 | 名称 | 核心目标 |\n| Module 1 | 处理过时程序 (Addressing Obsolete Programming) | 识别并消除潜意识中阻碍成功的旧有程序（如对失败的恐惧、自我破坏）。 |\n| Module 2 | 奠定基础 "
+      }
+     ],
+     "cards_target": 4,
+     "minutes": 25
+    },
+    {
+     "day": 4,
+     "topic": "其他",
+     "read": [
+      {
+       "doc_id": 9,
+       "title": "1. Introduction to Precision Poker - 精准扑克简介-21ed6a55",
+       "heading": "核心课程内容",
+       "preview": "1. 消除最坏的敌人：投射：学习如何克服扑克玩家最常见的投射问题，提高对对手行为的理解。\n1. 软件的高效使用：学习如何从各种扑克软件中提取最大价值，包括锁定和聚合报告、MDA数据分析等。\n1. 模式库的建立：借鉴象棋中的模式库概念，在扑克中建立自己的模式库，提高决策效率。\n1. 横向主题研究：研究如阻挡牌、10%下注"
+      }
+     ],
+     "cards_target": 4,
+     "minutes": 25
+    },
+    {
+     "day": 5,
+     "topic": "其他",
+     "read": [
+      {
+       "doc_id": 27,
+       "title": "2026-02-24_16-54-54z2 session 1-311d6a55",
+       "heading": "2026-02-24_16-54-54z2 session 1",
+       "preview": "<!-- notion-page: 311d6a55-caa2-8083-891e-cbf65cb5a179 -->\n[视频] 2026-02-24_16-54-54z2 session 1.mp4\n“在这个视频中，大家可能会注意到我迅速将很多玩家标上了绿色的‘鱼’标签。这主要是因为他们都有一个共同特征——没有补满筹码"
+      }
+     ],
+     "cards_target": 4,
+     "minutes": 25
+    }
+   ]
+  }
+ ],
+ "priority": [
+  "翻牌持续下注",
+  "河牌与抓诈唬"
+ ],
+ "topics": [
+  {
+   "name": "翻牌持续下注",
+   "docs": 46,
+   "sections": 183
+  },
+  {
+   "name": "河牌与抓诈唬",
+   "docs": 53,
+   "sections": 215
+  },
+  {
+   "name": "翻前基础",
+   "docs": 124,
+   "sections": 511
+  },
+  {
+   "name": "3bet 与 4bet",
+   "docs": 17,
+   "sections": 93
+  },
+  {
+   "name": "转牌与双枪",
+   "docs": 42,
+   "sections": 209
+  },
+  {
+   "name": "多人底池",
+   "docs": 15,
+   "sections": 51
+  },
+  {
+   "name": "剥削与调整",
+   "docs": 86,
+   "sections": 326
+  },
+  {
+   "name": "心理与资金",
+   "docs": 16,
+   "sections": 32
+  },
+  {
+   "name": "其他",
+   "docs": 252,
+   "sections": 350
+  }
+ ],
+ "total_days": 20,
+ "pool": 1970
+}

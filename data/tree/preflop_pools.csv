@@ -1,0 +1,25 @@
+pool_id,hero,villain,scenario,threebet_pct,call_pct,fold_pct,note,status
+P01,BTN,BB,BTN 开 vs BB 防守,,,,,待填
+P02,BB,BTN,BB 面对 BTN 开池,,,,,待填
+P03,CO,BB,CO 开 vs BB 防守,,,,,待填
+P04,BB,CO,BB 面对 CO 开池,,,,,待填
+P05,EP,BB,EP 开 vs BB 防守,,,,,待填
+P06,BB,EP,BB 面对 EP 开池,,,,,待填
+P07,BTN,SB,BTN 开 vs SB 防守,,,,,待填
+P08,SB,BTN,SB 面对 BTN 开池,,,,,待填
+P09,CO,SB,CO 开 vs SB 防守,,,,,待填
+P10,SB,CO,SB 面对 CO 开池,,,,,待填
+P11,EP,SB,EP 开 vs SB 防守,,,,,待填
+P12,SB,EP,SB 面对 EP 开池,,,,,待填
+P13,EP,CO,EP 开 vs CO,,,,"CO 冷跟/3bet 分界",待填
+P14,CO,EP,CO 面对 EP 开池,,,,,待填
+P15,EP,BTN,EP 开 vs BTN 防守,,,,,待填
+P16,BTN,EP,BTN 面对 EP 开池,,,,,待填
+P17,CO,BTN,CO 开 vs BTN 防守,,,,,待填
+P18,BTN,CO,BTN 面对 CO 开池,,,,,待填
+P19,UTG,HJ,UTG 开 vs HJ 3bet,,,52%,"已知：100bb 弃 52%",部分
+P20,HJ,UTG,HJ 面对 UTG 开池,,,,,待填
+P21,SB,BB,SB 开池 / limp,,,,"已填见 note：弃37/跟49/3bet14（另一条线 limp）",部分
+P22,BB,SB,BB 面对 SB 开池,,,,,待填
+P23,ALL,ALL,对抗玩家池的经验总结,,,,,总结页
+P24,ALL,ALL,极端画像经验总结,,,,,总结页

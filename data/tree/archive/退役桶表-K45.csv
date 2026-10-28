@@ -1,0 +1,10 @@
+table_id,hand_class,bucket,unit,basis
+K45,两对+,100,下注率,反推·Overbankroll
+K45,暗三条,100,下注率,反推·Overbankroll
+K45,超对,100,下注率,反推·Overbankroll
+K45,顶对好踢,60,下注率,反推·Overbankroll
+K45,顶对弱踢,20,下注率,反推·Overbankroll
+K45,听牌,80,下注率,反推·Overbankroll
+K45,后门空气,40,下注率,反推·Overbankroll
+K45,纯空气,40,下注率,反推·Overbankroll
+K45,其他,50,下注率,反推·Overbankroll

@@ -1,0 +1,82 @@
+{
+ "agg": {
+  "hands": 14798,
+  "winrate_bb100": 29.6,
+  "totals": {
+   "vpip": 24.1,
+   "pfr": 19.8,
+   "three_bet": 11.9,
+   "fold_to_3bet": 51.1,
+   "cbet_flop": 75.9,
+   "cbet_turn": 57.8,
+   "cbet_river": 73.3,
+   "fold_to_cbet": 27.4,
+   "wtsd": 18.7,
+   "wsd": 53.5,
+   "limp": 0.5
+  },
+  "samples": {
+   "hands": 14798,
+   "vpip": 14798,
+   "three_bet": 5423,
+   "fold_to_3bet": 509,
+   "cbet_flop": 884,
+   "cbet_turn": 282,
+   "cbet_river": 60,
+   "fold_to_cbet": 135,
+   "wtsd": 3293,
+   "wsd": 615,
+   "limp": 14798
+  },
+  "rfi": {
+   "BTN": {
+    "pct": 43.5,
+    "n": 1266
+   },
+   "CO": {
+    "pct": 27.0,
+    "n": 1661
+   },
+   "SB": {
+    "pct": 33.3,
+    "n": 882
+   },
+   "HJ": {
+    "pct": 23.0,
+    "n": 1995
+   },
+   "UTG": {
+    "pct": 19.9,
+    "n": 2478
+   }
+  }
+ },
+ "leaks": [
+  {
+   "id": "fold_to_cbet",
+   "label": "面对持续下注的弃牌率",
+   "value": 27.4,
+   "target": "38~56",
+   "direction": "偏低",
+   "samples": 135,
+   "severity": 0.59,
+   "topic": "翻牌持续下注",
+   "advice": "跟注太宽，转牌会很难受。检查是不是在用无后门的空气牌硬跟。"
+  },
+  {
+   "id": "wtsd",
+   "label": "摊牌率 WTSD",
+   "value": 18.7,
+   "target": "24~34",
+   "direction": "偏低",
+   "samples": 3293,
+   "severity": 0.53,
+   "topic": "河牌与抓诈唬",
+   "advice": "摊牌太少，可能过度弃牌，被对手的价值下注打穿。"
+  }
+ ],
+ "priority_topics": [
+  "翻牌持续下注",
+  "河牌与抓诈唬"
+ ]
+}

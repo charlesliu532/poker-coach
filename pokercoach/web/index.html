@@ -1,0 +1,581 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>扑克复盘台</title>
+<link rel="stylesheet" href="/static/style.css?v=15">
+</head>
+<body>
+  <div id="fatalBar" style="display:none;position:fixed;top:0;left:0;right:0;z-index:99999;
+       background:#5a1b1b;color:#fff;padding:10px 14px;font:13px/1.5 -apple-system,sans-serif;
+       border-bottom:2px solid #c96"></div>
+  <script>
+    window.onerror = function (msg, src, line, col) {
+      var b = document.getElementById('fatalBar');
+      if (!b) return;
+      b.style.display = 'block';
+      b.textContent = '页面脚本出错：' + msg + ' @ ' + (src || '').split('/').pop() + ':' + line;
+    };
+    window.addEventListener('unhandledrejection', function (e) {
+      var b = document.getElementById('fatalBar');
+      if (b) { b.style.display = 'block'; b.textContent = '请求或异步出错：' + (e.reason && e.reason.message || e.reason); }
+    });
+  </script>
+<header class="top">
+  <div class="brand"><span class="suit">♠</span> 扑克复盘台</div>
+  <div class="hstats" id="hstats">加载中…</div>
+  <button class="mini-btn" id="cfgBtn" title="配置模型">⚙︎ 模型</button>
+</header>
+
+<nav class="tabs" id="tabs">
+  <button data-group="练习" data-first="post">练习</button>
+  <button data-tab="tree">策略树</button>
+  <button data-tab="review">复盘</button>
+  <button data-group="知识" data-first="ask" class="active">知识</button>
+  <button data-group="进度" data-first="progress">进度</button>
+  <button data-tab="calc">算牌</button>
+
+  
+  <button class="sub" data-parent="练习" data-tab="campaign">闯关</button>
+  <button class="sub" data-parent="练习" data-tab="cards">复习卡</button>
+  <button class="sub" data-parent="练习" data-tab="sim">模拟牌桌</button>
+  <button class="sub" data-parent="复盘" data-tab="mine">我的牌局</button>
+  <button class="sub" data-parent="知识" data-tab="ask">问答</button>
+  <button class="sub" data-parent="知识" data-tab="rules">规则审核</button>
+  <button class="sub" data-parent="知识" data-tab="ptypes">玩家类型参数</button>
+  <button class="sub" data-parent="进度" data-tab="progress">总览</button>
+  <button class="sub" data-parent="进度" data-tab="plan">今日计划</button>
+</nav>
+<div id="subbar" class="subbar"></div>
+
+<main>
+  <!-- 策略树 -->
+  <section id="tab-tree" class="tab">
+    <div class="panel">
+      <div class="row" style="margin-top:0">
+        <h2 class="inline">策略树</h2>
+        <span id="treeMeta" class="badge"></span>
+      </div>
+
+      <div class="flow">
+        <!-- ① 桌型与筹码 -->
+        <div class="step"><label>① 桌型</label>
+          <select id="treeTableType">
+            <option>6-max</option><option>8-max</option>
+            <option>8-max + 强抓</option><option>8-max + 强抓 + 0.5bb前注</option>
+          </select></div>
+        <div class="step"><label>② 筹码</label>
+          <select id="treeHeroStack">
+            <option value="20bb">小于 25bb</option>
+            <option value="50bb">50bb</option>
+            <option value="100bb" selected>100bb（八人桌 200bb）</option>
+            <option value="200bb">200bb（八人桌 400bb）</option>
+            <option value="200bb·前注">200bb·0.5前注</option>
+            <option value="*">任意</option>
+          </select></div>
+        <div class="step"><label>对手筹码</label>
+          <select id="treeVillainStack">
+            <option value="*">同我</option>
+            <option value="20bb">小于 25bb</option>
+            <option value="50bb">50bb</option>
+            <option value="100bb">100bb</option>
+            <option value="200bb">200bb</option>
+          </select></div>
+        <div class="step"><label>等效</label>
+          <span id="stackEquiv" class="hint" style="align-self:center">—</span></div>
+
+        <!-- ③ 翻前：只选位置，剧情自动推导 -->
+        <div class="step"><label>③ 我的位置</label>
+          <select id="pfMe"></select></div>
+        <div class="step"><label>④ 对手位置</label>
+          <select id="pfOpp"></select></div>
+        <div class="step"><label>⑤ 翻前剧情</label>
+          <select id="pfLine"></select></div>
+        <div class="step"><label>→ 底池</label>
+          <span id="potAuto" class="hint" style="align-self:center">SRP</span></div>
+
+        <!-- ⑦ 对手形象 -->
+        <div class="step" id="stepOpp2" style="display:none"><label>第二位对手类型</label>
+          <select id="treeVsType2"><option value="*">任意</option>
+            <option>标准</option><option>紧凶</option><option>松凶</option><option>岩石</option>
+            <option>受气包</option><option>跟注站</option><option>娱乐玩家</option>
+            <option>过度诈唬型</option><option>下注不足型</option></select></div>
+        <div class="step"><label>⑥ 对手类型</label>
+          <select id="treeVsType"><option value="*">任意</option>
+            <option>标准</option><option>紧凶</option><option>松凶</option><option>岩石</option>
+            <option>受气包</option><option>跟注站</option><option>娱乐玩家</option>
+            <option>过度诈唬型</option><option>下注不足型</option></select></div>
+
+        <!-- ⑧ 牌面 -->
+        <div class="step"><label>⑦ 牌面</label>
+          <div class="board-picker" id="boardPicker"></div>
+          <input id="treeBoard" value="" type="hidden"></div>
+        <div class="step"><label>⑧ 街道</label>
+          <select id="treeStreet"><option>翻牌</option><option>转牌</option><option>河牌</option><option>翻前</option></select></div>
+
+        <!-- 隐藏字段：由上面的选择自动推导 -->
+        <input id="treeHero" type="hidden" value="BTN">
+        <input id="pfMeIsOpener" type="hidden" value="1">
+        <input id="treeVillain" type="hidden" value="BB">
+        <select id="treeVillain2" style="display:none"><option value="*">第二对手</option></select>
+        <input id="treeOpener" type="hidden" value="hero">
+        <input id="treePot" type="hidden" value="SRP">
+        <input id="treeAction" type="hidden" value="对手过牌">
+        <input id="treeLine" type="hidden" value="*">
+        <input id="treeRunout" type="hidden" value="*">
+        <input id="treePath" type="hidden" value="">
+        <input id="treeHeroStackSel" type="hidden" value="">
+        <input id="treeCapped" type="hidden" value="*">
+      </div>
+
+      <div class="chips-row">
+        <label class="chip" title="勾上=保留多尺度混合；不勾=合并成单尺度">
+          <input type="checkbox" id="treeMulti" disabled> 混合策略
+        </label>
+        <span class="chip-note">不勾即简化（翻前 100/75/50/25/0 · 翻后 100/80/60/40/20/0）</span>
+        <span class="chip-soon">混合暂未开启</span>
+      </div>
+      <div id="treeStraddleTip" class="hint" style="display:none;margin-top:4px"></div>
+      <div id="tableBox"></div>
+      <div class="sent" id="treeSent"></div>
+      <div class="sent" id="treeNext"></div>
+      <div id="vsTypeBox" class="panel hidden" style="margin-top:10px"></div>
+      <div class="legend" style="margin:2px 0 8px">
+        牌面写法：翻牌 <code>A72r</code> / <code>KQ9tt</code> / <code>T94m</code>；转牌、河牌写满 5 张，如 <code>Ah7d2c9s5d</code>。
+        改任何一个条件都会自动重查。
+      </div>
+
+      <div id="treeGrid" class="treegrid"></div>
+      <div id="treeDetail" class="legend" style="min-height:22px;margin-top:8px"></div>
+    </div>
+  </section>
+
+  <!-- 规则审核 -->
+  <section id="tab-ptypes" class="tab">
+    <div class="panel">
+      <div class="row" style="margin-top:0">
+        <h2 class="inline">玩家类型参数</h2>
+        <span class="spacer"></span>
+        <span class="badge" id="ptypesMeta"></span>
+        <button class="primary" id="ptypesSave">保存</button>
+      </div>
+      <div class="hint">
+        都存在 <code>data/tree/adjustments.json</code>，改完立刻生效。
+        <b>vpip / pfr / 3bet / call3bet / 4bet 互相独立</b>——VPIP 宽不代表 3bet 宽，3bet 宽也不代表 4bet 宽。
+      </div>
+      <div id="ptypesBox"></div>
+    </div>
+  </section>
+  <section id="tab-rules" class="tab">
+    <div class="panel">
+      <div class="row" style="margin-top:0">
+        <h2 class="inline">策略规则</h2>
+        <span class="spacer"></span>
+        <span class="badge" id="ruleCount"></span>
+        <label class="mini">底池
+          <select id="rulePot"><option value="">全部</option>
+            <option>SRP</option><option>3BP</option><option>3BP多人</option>
+            <option>4BP</option><option>多人池</option><option>翻前</option></select>
+        </label>
+        <label class="mini">街道
+          <select id="ruleStreet"><option value="">全部</option>
+            <option>翻牌</option><option>转牌</option><option>河牌</option><option>翻前</option></select>
+        </label>
+        <label class="mini">角色
+          <select id="ruleRole"><option value="">全部</option>
+            <option>IP-PFR</option><option>OOP-PFR</option>
+            <option>IP-caller</option><option>OOP-caller</option>
+            <option>BvB-SB</option><option>BvB-BB</option></select>
+        </label>
+      </div>
+      <div class="hint">
+        这里是策略树里真正在用的规则（<code>data/tree/rules.csv</code>），点任意一条会跳到策略树并带入全部条件。
+        标 <b>⚠ 推导</b> 的是我用统一公式补的缺口，只当方向用。
+      </div>
+      <div id="ruleList" class="rules"></div>
+    </div>
+  </section>
+
+  <!-- 知识库 -->
+
+  <!-- 问答 -->
+  <section id="tab-ask" class="tab active">
+    <div class="panel">
+      <label class="lbl" for="q">问教练</label>
+      <textarea id="q" rows="4" placeholder="例：翻前 BTN 的 A5s 被 BB 3bet，资料里怎么说的？&#10;例：AKs vs 22 翻前胜率多少？底池 100 对手下注 75 该跟吗？"></textarea>
+      <div class="row">
+        <button class="primary" id="askBtn">提问</button>
+        <label class="mini">引用
+          <select id="askK">
+            <option value="4">4 段</option>
+            <option value="6" selected>6 段</option>
+            <option value="10">10 段</option>
+          </select>
+        </label>
+        <span class="spacer"></span>
+        <span class="badge" id="modeBadge"></span>
+      </div>
+    </div>
+
+    <div id="answer" class="panel hidden">
+      <div class="answer-body" id="answerText"></div>
+      <div id="mathBox"></div>
+      <div class="sources" id="sources"></div>
+      <details id="promptWrap" class="hidden">
+        <summary>提问包（可复制给任何模型）</summary>
+        <pre id="promptBox"></pre>
+      </details>
+    </div>
+  </section>
+
+  <!-- 算牌 -->
+  <section id="tab-calc" class="tab">
+    <div class="grid2">
+      <div class="panel">
+        <h2>胜率</h2>
+        <div class="field"><label>我的手牌 / 范围</label><input id="eqHero" placeholder="AhKh　或　ATs+"></div>
+        <div class="field"><label>对手手牌 / 范围</label><input id="eqVillain" placeholder="QQ+　或　22"></div>
+        <div class="field"><label>公共牌（可空）</label><input id="eqBoard" placeholder="Kh7h2c"></div>
+        <button class="primary" id="eqBtn">计算</button>
+        <div id="eqOut" class="out"></div>
+      </div>
+
+      <div class="panel">
+        <h2>底池赔率 / EV</h2>
+        <div class="field"><label>底池（对手下注前）</label><input id="odPot" type="number" placeholder="100"></div>
+        <div class="field"><label>对手下注</label><input id="odBet" type="number" placeholder="75"></div>
+        <div class="field"><label>我的胜率 %（可选）</label><input id="odEq" type="number" step="0.1" placeholder="35"></div>
+        <button class="primary" id="odBtn">计算</button>
+        <div id="odOut" class="out"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 复盘 -->
+  <section id="tab-review" class="tab">
+    <div class="panel" style="padding-bottom:12px">
+      <div class="muted" style="font-size:12.5px">
+        看这一页的顺序：① 先看漏洞（该补什么）→ ② 再看开池范围（该开哪些牌）→ ③ 把打错的手记在下面
+      </div>
+    </div>
+    <div class="panel">
+      <div class="row" style="margin-top:0">
+        <h2 class="inline">总体评估</h2>
+        <span class="spacer"></span>
+        <span class="badge" id="evalMeta">计算中…</span>
+      </div>
+      <div id="evalBox"></div>
+    </div>
+    <div class="panel">
+      <div class="row" style="margin-top:0">
+        <h2 class="inline">导入牌谱</h2>
+        <span class="spacer"></span>
+        <span class="badge" id="uploadMeta"></span>
+      </div>
+      <div class="muted" style="font-size:12.5px;margin-bottom:10px">
+        上传 GG / PokerStars 的手牌 txt。「平台 / 级别 / 时间跨度」只用来标记来源，方便以后分开看不同样本。
+      </div>
+      <div class="row" style="gap:10px;flex-wrap:wrap;align-items:flex-end;margin-top:0">
+        <div class="field" style="min-width:120px"><label>平台</label>
+          <select id="upPlatform"><option>GG</option><option>PokerStars</option><option>WPT</option><option>其他</option></select></div>
+        <div class="field" style="min-width:110px"><label>级别</label>
+          <input id="upStakes" placeholder="NL2 / 0.01-0.02"></div>
+        <div class="field" style="min-width:150px"><label>时间跨度（起）</label>
+          <input id="upFrom" type="date"></div>
+        <div class="field" style="min-width:150px"><label>时间跨度（止）</label>
+          <input id="upTo" type="date"></div>
+        <div class="field" style="min-width:200px"><label>手牌文件</label>
+          <input id="upFile" type="file" accept=".txt,text/plain"></div>
+        <button class="primary" id="upBtn">上传并导入</button>
+        <span class="badge" id="upMsg"></span>
+      </div>
+      <div id="upList" class="list" style="margin-top:10px"></div>
+    </div>
+    <div class="panel">
+      <div class="row" style="margin-top:0">
+        <h2 class="inline">手牌漏洞</h2>
+        <span class="spacer"></span>
+        <span class="badge" id="leakMeta">加载中…</span>
+      </div>
+      <div id="leakBox"></div>
+    </div>
+    <div class="panel">
+      <div class="row" style="margin-top:0">
+        <h2 class="inline">开池范围对比</h2>
+        <span class="spacer"></span>
+        <span class="badge" id="rangeMeta"></span>
+      </div>
+      <div class="row" id="posTabs" style="gap:6px;margin:8px 0 10px">
+        <button data-pos="UTG">UTG</button>
+        <button data-pos="HJ">HJ</button>
+        <button data-pos="CO">CO</button>
+        <button data-pos="BTN" class="on">BTN</button>
+        <button data-pos="SB">SB</button>
+      </div>
+      <div id="rangeGrid" class="rgrid"></div>
+      <div id="rangeNote" class="muted" style="font-size:12.5px;margin-top:10px"></div>
+    </div>
+    <div class="panel">
+      <details id="handForm" open>
+        <summary><b>记一手牌</b>（点标题收起）</summary>
+      <div class="grid3">
+        <div class="field"><label>级别</label><input id="hStake" placeholder="NL100 / 5-10"></div>
+        <div class="field"><label>我的位置</label><input id="hPos" placeholder="BTN"></div>
+        <div class="field"><label>底池大小</label><input id="hPot" type="number" placeholder="120"></div>
+        <div class="field"><label>我的手牌</label><input id="hHero" placeholder="AhKh"></div>
+        <div class="field"><label>对手手牌（未知可空）</label><input id="hVillain" placeholder="QQ+"></div>
+        <div class="field"><label>牌面</label><input id="hBoard" placeholder="Kh7h2c"></div>
+      </div>
+      <div class="field"><label>行动线</label><input id="hAction" placeholder="BTN raise 3bb, BB call; flop Kh7h2c: BB check, 我 4bb, BB raise 12bb…"></div>
+      <div class="field"><label>我当时怎么想的</label><textarea id="hNotes" rows="3" placeholder="我怕他有 77，因为他在这种面上很少加注…"></textarea></div>
+      <div class="row">
+        <button class="primary" id="handBtn">保存</button>
+        <button id="handAsk">保存并让教练分析</button>
+        <span class="spacer"></span>
+        <span class="badge" id="handMsg"></span>
+      </div>
+      </details>
+    </div>
+    <div class="panel">
+      <h2>按策略树：错得最多的地方 <span class="badge" id="mmMeta"></span></h2>
+      <div class="muted" style="font-size:12.5px;margin-bottom:8px">
+        拿你每一手「轮到我主动决策」的牌，对照策略树给该手牌类别的下注率：
+        树说该打 ≥60% 你却过牌 = 该打没打；树说该过 ≥60% 你却下注 = 不该打却打。
+      </div>
+      <div id="mmBox" class="list"></div>
+    </div>
+    </div>
+    <div class="panel">
+      <h2>最近的手牌</h2>
+      <div id="recentHands" class="list"></div>
+    </div>
+  </section>
+
+  <!-- 模拟 -->
+  <section id="tab-sim" class="tab">
+    <div class="panel">
+      <div class="row" style="margin-top:0">
+        <h2 class="inline">模拟牌桌</h2>
+        <span class="spacer"></span>
+        <label class="mini">对手类型
+          <select id="simStyle"><option value="紧凶">紧凶 TAG</option></select>
+        </label>
+        <span class="badge" id="simTypeHint"></span>
+        <label class="mini">池型
+          <select id="simPot">
+            <option value="SRP">SRP</option><option value="4BP">4bet</option><option value="多人池">多人池</option>
+            <option value="3bet底池">3bet 底池</option>
+          </select>
+        </label>
+        <button class="primary" id="simNew">发牌</button>
+      </div>
+
+      <div id="simTable" class="table"><div class="empty">点「发牌」开始一手牌</div></div>
+      <div id="simActions" class="row"></div>
+      <div id="simFeedback"></div>
+      <div id="simHistory" class="hist"></div>
+    </div>
+
+    <div class="panel">
+      <details>
+        <summary><b>编辑对手范围</b>（改完立即生效，只影响本机）</summary>
+        <div class="row" style="margin-top:10px">
+          <label class="mini">类型 <select id="ptSel"></select></label>
+          <label class="mini">VPIP <input id="ptVpip" style="width:90px"></label>
+          <span class="badge" id="ptPct"></span>
+        </div>
+        <div class="field"><label>他的跟注 / 防守范围</label>
+          <textarea id="ptRange" rows="3" placeholder="22+, A2s+, K9s+ …"></textarea>
+        </div>
+        <div class="field"><label>一句话描述</label><input id="ptDesc"></div>
+        <div class="row">
+          <button class="primary" id="ptSave">保存</button>
+          <button id="ptSuggest">从笔记填充</button>
+          <button id="ptReset">恢复默认</button>
+          <span class="badge" id="ptMsg"></span>
+        </div>
+        <div id="ptEvidence" class="muted" style="font-size:12.5px;margin-top:8px"></div>
+      </details>
+    </div>
+
+    <div class="panel">
+      <div class="row" style="margin-top:0">
+        <h2 class="inline">模拟记录</h2>
+        <span class="spacer"></span>
+        <span class="badge" id="simReportMeta"></span>
+      </div>
+      <div id="simReport" class="muted" style="font-size:13px">还没有记录。</div>
+    </div>
+  </section>
+
+  <!-- 闯关 -->
+  <section id="tab-campaign" class="tab">
+    <div class="panel">
+      <div class="row" style="margin-top:0;gap:28px">
+        <div>
+          <div class="big" id="cRank">新手</div>
+          <div class="muted" id="cXp">0 XP</div>
+        </div>
+        <span class="spacer"></span>
+        <div class="statcol"><b id="cAcc">—</b><span>正确率</span></div>
+        <div class="statcol"><b id="cStreak">0</b><span>最高连击</span></div>
+        <div class="statcol"><b id="cMastered">0</b><span>已掌握卡</span></div>
+        <div class="statcol"><b id="cDays">0</b><span>连续天数</span></div>
+      </div>
+      <div class="xpbar"><i id="xpFill"></i></div>
+      <div class="muted" id="xpNext" style="font-size:12px;margin-top:6px"></div>
+    </div>
+
+    <div class="panel">
+      <h2>关卡</h2>
+      <div id="levelGrid" class="lvgrid"></div>
+    </div>
+
+    <div class="panel hidden" id="quizPanel">
+      <div class="row" style="margin-top:0">
+        <h2 class="inline" id="quizTitle"></h2>
+        <span class="spacer"></span>
+        <span class="badge" id="quizProg"></span>
+        <button class="mini-btn" id="quizClose">退出</button>
+      </div>
+      <div id="quizBox"></div>
+    </div>
+
+    <div class="panel">
+      <h2>成就</h2>
+      <div id="achGrid" class="achgrid"></div>
+    </div>
+  </section>
+
+  <!-- 翻后 -->
+  <section id="tab-mine" class="tab">
+    <div class="panel">
+      <h2>我的牌局练 <span class="badge" id="personalMeta">仅你可见</span></h2>
+      <div class="muted" style="font-size:12.5px;margin-bottom:8px">
+        从你自己上传的手牌里，抽出「轮到你主动决策」的真实场景做成题。
+        数据只在本机，不会进公共题库。
+      </div>
+      <div id="personalScenes" class="list"></div>
+    </div>
+  </section>
+
+  <!-- 进度 -->
+  <section id="tab-progress" class="tab">
+    <div class="panel">
+      <h2>总览</h2>
+      <div id="ovBox"></div>
+    </div>
+    <div class="panel">
+      <h2>各主题掌握度</h2>
+      <div class="muted" style="color:var(--muted);font-size:12.5px;margin-bottom:8px">
+        掌握 = 间隔被推到 7 天以上。数字小说明这块还没真正记住，该回去重读。
+      </div>
+      <div id="topicBox"></div>
+    </div>
+    <div class="panel">
+      <h2>错题本</h2>
+      <div id="missBox" class="list"></div>
+    </div>
+  </section>
+
+  <!-- 计划 -->
+  <section id="tab-plan" class="tab">
+    <div class="panel">
+      <div class="row" style="margin-top:0">
+        <h2 class="inline">今日计划</h2>
+        <span class="spacer"></span>
+        <label class="mini">时长
+          <select id="planMin">
+            <option value="15">15 分钟</option>
+            <option value="25" selected>25 分钟</option>
+            <option value="45">45 分钟</option>
+          </select>
+        </label>
+        <button id="planBtn">重算</button>
+      </div>
+      <div id="planBox" class="out"></div>
+    </div>
+    <div class="panel">
+      <div class="row" style="margin-top:0">
+        <h2 class="inline">学习路径</h2>
+        <span class="spacer"></span>
+        <label class="mini">周数
+          <select id="pathWeeks">
+            <option value="2">2 周</option>
+            <option value="4" selected>4 周</option>
+            <option value="8">8 周</option>
+            <option value="12">12 周</option>
+          </select>
+        </label>
+        <button id="pathBtn">重排</button>
+      </div>
+      <div id="pathBox" class="out"></div>
+    </div>
+    <div class="panel">
+      <h2>资料地图</h2>
+      <div id="mapBox" class="list"></div>
+    </div>
+  </section>
+
+  <!-- 卡片 -->
+  <section id="tab-cards" class="tab">
+    <div class="panel">
+      <div class="row" style="margin-top:0">
+        <h2 class="inline">今日复习</h2>
+        <span class="spacer"></span>
+        <label class="mini">主题
+          <select id="cardTopic"><option value="">全部</option></select>
+        </label>
+        <span class="badge" id="cardCount"></span>
+      </div>
+      <div id="cardBox" class="cardbox"></div>
+    </div>
+  </section>
+</main>
+
+<dialog id="cfgDlg">
+  <form method="dialog" class="cfgform">
+    <h2>模型设置</h2>
+    <p class="muted" style="font-size:12.5px;line-height:1.6;margin:0 0 14px">
+      配置后，「问答」会直接基于你的笔记组织答案；不配置就只做检索 + 算牌，并把结果打包成「提问包」。
+      Key 只存在本机的数据库里，不会上传。
+    </p>
+    <div class="field"><label>API Key
+        <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener"
+           style="float:right;color:var(--green);font-size:12px;text-decoration:none">去创建 →</a>
+      </label>
+      <input id="cfgKey" type="password" autocomplete="off" placeholder="sk-…">
+    </div>
+    <div class="field"><label>模型</label>
+      <input id="cfgModel" placeholder="deepseek-chat">
+    </div>
+    <div class="field"><label>接口地址</label>
+      <input id="cfgBase" placeholder="https://api.deepseek.com">
+    </div>
+    <div class="row">
+      <button class="primary" id="cfgSave" type="button">保存</button>
+      <button id="cfgClear" type="button">清除 Key</button>
+      <span class="spacer"></span>
+      <button id="cfgClose" type="button">关闭</button>
+    </div>
+    <div id="cfgMsg" class="badge" style="margin-top:10px"></div>
+  </form>
+</dialog>
+
+<dialog id="reader" class="reader">
+  <div class="row" style="margin-top:0">
+    <div>
+      <div id="readTitle" style="font-weight:600"></div>
+      <div id="readMeta" class="badge"></div>
+    </div>
+    <span class="spacer"></span>
+    <span id="readNotion" style="font-size:12.5px;margin-right:10px"></span>
+    <button class="mini-btn" onclick="document.getElementById('reader').close()">关闭</button>
+  </div>
+  <div id="readBody" class="readbody"></div>
+</dialog>
+
+<script src="/static/app.js?v=79"></script>
+</body>
+</html>

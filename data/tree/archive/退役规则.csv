@@ -1,0 +1,5 @@
+rule_id,pot_type,role,board_class,street,node_action,sizing,freq,bucket_table,source,conf,note,opp_pos,hero_pos,stack,line,runout,status,board_exact,vs_type,capped
+R82,SRP,IP-PFR,高A-高-彩,翻牌,对手过牌,150% 超池,全范围极化,K45,Overbankroll,中,已被课程 R02 的 120% 取代（作者裁决 2026-10-28）,*,*,*,*,*,retired,,*,*
+R111,SRP,OOP-caller,中-公对,翻牌,对手小注（XR）,7x+（长剑）,—,K75,胡萝卜,中,7x 长剑：Smash 全 13 讲零出处（只有 3x / 3–4x / 加注到 50% Pot），已退役,*,*,*,*,*,retired,,*,*
+R118,SRP,OOP-caller,*,转牌,对手过牌,约 50–66%,缩诈唬，保护过牌范围,K78,胡萝卜+推导,低,已被 Smash M09-L08/L09 的「10% 阻挡注」取代（R146/R147）,*,*,*,我XR后被跟注,成花,retired,,*,*
+R119,SRP,OOP-caller,*,转牌,对手过牌,约 50–66%,缩诈唬，保护过牌范围,K78,胡萝卜+推导,低,已被 Smash M09-L08/L09 的「10% 阻挡注」取代（R146/R147）,*,*,*,我XR后被跟注,成顺,retired,,*,*

@@ -1,0 +1,118 @@
+{
+  "_说明": "玩家类型的频率与调整系数。改这里就生效，不用动代码。",
+  "_字段": {
+    "freq": "vpip/pfr/threebet/call3bet/fourbet 互相独立，不能互推",
+    "preflop_width": "开池宽度系数，>1 表示开更宽",
+    "tendency": "翻后频率调整：bluff_catch 抓诈、value_thin 薄价值、bluff 诈唬"
+  },
+  "freq": {
+    "标准": {
+      "vpip": 21,
+      "pfr": 18,
+      "threebet": 8,
+      "call3bet": 55,
+      "fourbet": 2
+    },
+    "紧凶": {
+      "vpip": 25,
+      "pfr": 20,
+      "threebet": 9,
+      "call3bet": 50,
+      "fourbet": 3
+    },
+    "松凶": {
+      "vpip": 35,
+      "pfr": 28,
+      "threebet": 15,
+      "call3bet": 62,
+      "fourbet": 7
+    },
+    "岩石": {
+      "vpip": 17,
+      "pfr": 14,
+      "threebet": 5,
+      "call3bet": 32,
+      "fourbet": 2
+    },
+    "跟注站": {
+      "vpip": 52,
+      "pfr": 8,
+      "threebet": 3,
+      "call3bet": 78,
+      "fourbet": 1
+    },
+    "娱乐玩家": {
+      "vpip": 62,
+      "pfr": 10,
+      "threebet": 4,
+      "call3bet": 82,
+      "fourbet": 1
+    },
+    "受气包": {
+      "vpip": 30,
+      "pfr": 6,
+      "threebet": 2,
+      "call3bet": 72,
+      "fourbet": 0
+    },
+    "过度诈唬型": {
+      "vpip": 26,
+      "pfr": 22,
+      "threebet": 11,
+      "call3bet": 48,
+      "fourbet": 6
+    },
+    "下注不足型": {
+      "vpip": 24,
+      "pfr": 18,
+      "threebet": 7,
+      "call3bet": 55,
+      "fourbet": 2
+    }
+  },
+  "preflop_width": {
+    "标准": 1.0,
+    "紧凶": 1.05,
+    "松凶": 0.85,
+    "岩石": 1.2,
+    "跟注站": 0.9,
+    "娱乐玩家": 1.0,
+    "受气包": 1.25,
+    "过度诈唬型": 0.95,
+    "下注不足型": 1.1
+  },
+  "tendency": {
+    "过度诈唬型": {
+      "bluff_catch": 0.2,
+      "value_thin": 0.1,
+      "bluff": -0.3
+    },
+    "下注不足型": {
+      "bluff_catch": -0.25,
+      "value_thin": -0.1,
+      "bluff": 0.15
+    }
+  },
+  "simplify": {
+    "_说明": "分街阈值：翻前档位间距25要求严，翻后间距20放宽容忍。尺度>1个的节点强制混合。",
+    "levels_pre": [
+      100,
+      75,
+      50,
+      25,
+      0
+    ],
+    "levels_post": [
+      100,
+      80,
+      60,
+      40,
+      20,
+      0
+    ],
+    "threshold_pre": 2,
+    "threshold_post": 8,
+    "force_mixed_if_multi_sizing": true,
+    "mix_threshold": 2
+  }
+}
