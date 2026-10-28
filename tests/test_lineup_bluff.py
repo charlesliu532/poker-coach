@@ -196,6 +196,64 @@ class TestControlConformance(unittest.TestCase):
         self.assertLess(over["range_bet_pct"], base["range_bet_pct"])
         self.assertIn("少诈唬", over.get("adjust") or "")
 
+class TestNewControls(unittest.TestCase):
+    def _grid(self, **kw):
+        from pokercoach.paths import data_path
+        from pokercoach import tree
+        base = dict(root=data_path("tree"), pot="SRP", role="IP-PFR",
+                    board_text="A72r", street="翻牌", action="对手过牌",
+                    hero_pos="BTN", opp_pos="BB", stack="100bb",
+                    hero_stack="100bb", villain_stack="100bb", simplify=True)
+        base.update(kw)
+        return tree.grid(**base)
+
+    def test_multi_size_distributes_per_cell(self):
+        r = self._grid(stack="20bb", hero_stack="20bb", villain_stack="20bb",
+                       simplify=False)
+        self.assertTrue(r["ok"])
+        self.assertTrue(any(c.get("multi") for c in r["cells"]))
+        multi = next(c for c in r["cells"] if c.get("multi"))
+        self.assertGreaterEqual(len([m for m in multi["mix"] if m.get("freq", 0) > 0]), 2)
+        bets = [a for a in r["freq"]["actions"] if a["kind"] not in ("过牌", "弃牌")]
+        self.assertGreaterEqual(len(bets), 2)
+        self.assertAlmostEqual(sum(a["pct"] for a in r["freq"]["actions"]), 100, delta=0.5)
+
+    def test_second_opponent_type_changes_its_range(self):
+        base = self._grid(pot="3人池", opp_pos="BB+HJ", vs_type="*", vs_type2="*")
+        tight = self._grid(pot="3人池", opp_pos="BB+HJ", vs_type="*", vs_type2="紧凶")
+        station = self._grid(pot="3人池", opp_pos="BB+HJ", vs_type="*", vs_type2="跟注站")
+        self.assertTrue(base.get("villain2_range") and tight.get("villain2_range"))
+        def cnt(r):
+            return sum(1 for c in r["villain2_range"] if c.get("kind") == "threebet")
+        self.assertGreater(cnt(tight), cnt(station))
+
+    def test_capped_control_changes_rule(self):
+        yes = self._grid(pot="3BP", capped="是")
+        no = self._grid(pot="3BP", capped="否")
+        self.assertTrue(yes["ok"] and no["ok"])
+        self.assertNotEqual(yes["rule"]["rule_id"], no["rule"]["rule_id"])
+
+    def test_all_player_types_change_frequency(self):
+        base = self._grid(vs_type="*")["range_bet_pct"]
+        seen = set()
+        for t in ("紧凶", "松凶", "岩石", "跟注站", "娱乐玩家",
+                  "受气包", "过度诈唬型", "下注不足型"):
+            r = self._grid(vs_type=t)
+            self.assertTrue(r.get("adjust") or abs(r["range_bet_pct"] - base) > 0.05,
+                            f"{t} 没有影响")
+            seen.add(round(r["range_bet_pct"], 1))
+        self.assertGreater(len(seen), 3)
+
+    def test_bb_flat_range_includes_t7o(self):
+        from pokercoach.preflop_line import resolve
+        r = resolve("BB", "BTN", "BTN:open>BB:call")
+        self.assertTrue(r["ok"])
+        # 课程 BB 防守表包含 T7o（GTO 平跟表没有，之前会和对手范围对不上）
+        from pokercoach.ranges import parse_range
+        from pokercoach.tree import _hand_in_range
+        self.assertTrue(_hand_in_range("T7o", r["hero_set"]))
+
+
 class TestTreeIntegration(unittest.TestCase):
     """有数据文件时跑一遍真实节点：范围过滤 + 频率 + 诈唬计划都要在。"""
 

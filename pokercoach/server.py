@@ -255,6 +255,7 @@ class Handler(BaseHTTPRequestHandler):
                         locks=(__import__("pokercoach.locks", fromlist=["load"]).load()
                                if qs.get("locks", "1") != "0" else None),
                         preflop_line=qs.get("pf", ""),
+                        vs_type2=qs.get("vs_type2", "*"),
                     )
                 except ValueError as e:
                     return self._error(str(e))

@@ -31,7 +31,10 @@ _FIXED = {"UTG": UTG, "HJ": HJ, "CO": CO, "BTN": BTN, "SB": SB,
 
 def get(pos: str, vs: str | None = None) -> str:
     if pos.upper() == "BB" and vs:
-        return BB_VS_UTG if vs.upper() == "UTG" else BB_VS_BTN
+        # 8-max 的 UTG1/UTG2 是更早的位置，BB 防守要按对 UTG 的紧范围，
+        # 不能因为字符串不是 "UTG" 就退回最宽的 BB_VS_BTN。
+        v = vs.upper()
+        return BB_VS_UTG if v in ("UTG", "UTG1", "UTG2") else BB_VS_BTN
     return _FIXED[pos.upper()]
 
 

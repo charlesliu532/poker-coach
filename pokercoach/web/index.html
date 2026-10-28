@@ -107,6 +107,12 @@
             <option>标准</option><option>紧凶</option><option>松凶</option><option>岩石</option>
             <option>受气包</option><option>跟注站</option><option>娱乐玩家</option>
             <option>过度诈唬型</option><option>下注不足型</option></select></div>
+        <div class="step"><label>对手范围封顶</label>
+          <select id="treeCapped" title="封顶=他这条线从不用强牌（没坚果），可以多诈唬/放大尺度">
+            <option value="*">任意</option>
+            <option value="是">封顶（无坚果）</option>
+            <option value="否">未封顶</option>
+          </select></div>
 
         <!-- ⑧ 牌面 -->
         <div class="step"><label>牌面</label>
@@ -131,7 +137,6 @@
         <input id="treeRunout" type="hidden" value="*">
         <input id="treePath" type="hidden" value="">
         <input id="treeHeroStackSel" type="hidden" value="">
-        <input id="treeCapped" type="hidden" value="*">
       </div>
 
       <div class="chips-row">
@@ -162,6 +167,7 @@
         <span class="rv-label">范围视角</span>
         <button data-rv="hero" class="on">我</button>
         <button data-rv="opponent">对手</button>
+        <button data-rv="opponent2" id="rvOpp2" style="display:none">对手2</button>
       </div>
       <div id="treeGrid" class="treegrid"></div>
       <div id="treeDetail" class="legend" style="min-height:22px;margin-top:8px"></div>

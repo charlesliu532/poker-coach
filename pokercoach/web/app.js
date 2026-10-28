@@ -128,7 +128,18 @@ const Spot = (() => {
     const set = (id, v) => { const e = document.getElementById(id); if (e) e.value = v; };
     set("treeHero", d.hero);
     set("treeVillain", d.villain);
-    set("treeVillain2", d.villain2);
+    // 第二对手下拉：以前只有「*」一个选项，derive 算出 HJ 也写不进去，
+    // 于是多人池永远只带一个对手。这里按还在局里的人补选项。
+    {
+      const v2 = document.getElementById("treeVillain2");
+      if (v2) {
+        const list = (d.involved || []).filter((p) => p !== d.hero && p !== d.villain);
+        const ordered = positions().filter((p) => list.includes(p));
+        v2.innerHTML = `<option value="*">第二对手</option>` +
+          ordered.map((p) => `<option value="${p}">${p}</option>`).join("");
+        v2.value = ordered.includes(d.villain2) ? d.villain2 : "*";
+      }
+    }
     set("treePot", d.pot);
     set("treeOpener", d.opener);
     set("treeVsType", d.vsType);
@@ -2292,6 +2303,7 @@ function renderPokerTable(v, ruleInfo) {
   const LIST6 = ["UTG","HJ","CO","BTN","SB","BB"];
   const LIST8 = ["UTG","UTG1","UTG2","HJ","CO","BTN","SB","BB"];
   const allPos = tableType.startsWith("8") ? LIST8 : LIST6;
+  const straddle = isStraddleTable();
   const involved = new Set([v.hero, v.villain]);
   if (multi >= 3 && v.villain2 && v.villain2 !== "*") involved.add(v.villain2);
   // 座位顺序要让「我」落在最下方：按位置顺序从 hero 开始环排
@@ -2299,9 +2311,11 @@ function renderPokerTable(v, ruleInfo) {
   const rotated = allPos.slice(hi).concat(allPos.slice(0, hi));
   const seats = rotated.map((pos) => ({
     pos,
-    stk: pos === v.hero ? stackOf("hero") : (involved.has(pos) ? stackOf("villain") : "—"),
+    stk: pos === v.hero ? stackOf("hero")
+      : ((involved.has(pos) || (straddle && pos === "UTG")) ? stackOf("villain") : "—"),
     hero: pos === v.hero,
-    inactive: !involved.has(pos),
+    // 抓位永远不灰：就算这手牌没参与，也要让人看到抓位在哪
+    inactive: !involved.has(pos) && !(straddle && pos === "UTG"),
   }));
   const n = seats.length;
   const cards = v.street === "翻前" ? [] : parseCards(v.board);
@@ -2314,11 +2328,15 @@ function renderPokerTable(v, ruleInfo) {
   const seatHTML = seats.map((s, i) => {
     const p = seatPos(i, n);
     const locked = (window.__locks || []).some((c) => c.pos === s.pos);
-    const cls = [s.hero ? "hero" : "", locked ? "locked" : "", s.inactive ? "inactive" : ""].filter(Boolean).join(" ");
+    // 强抓：UTG 是抓位（2bb），不是普通枪口位
+    const isStr = straddle && s.pos === "UTG";
+    const cls = [s.hero ? "hero" : "", locked ? "locked" : "", s.inactive ? "inactive" : "",
+                 isStr ? "str" : ""].filter(Boolean).join(" ");
     return `<div class="pseat ${cls}" data-lockpos="${esc(s.pos || "")}"
-        style="left:${p.left};top:${p.top};transform:translate(-50%,-50%)" title="点击派生新版本">
-      <div class="pos">${esc(POS_CN[s.pos] || s.pos || "?")}${s.hero ? " ●我" : ""}${locked ? " ⚖" : ""}</div>
+        style="left:${p.left};top:${p.top};transform:translate(-50%,-50%)" title="${isStr ? "抓位：先下 2bb，翻前最后行动" : "点击派生新版本"}">
+      <div class="pos">${esc(POS_CN[s.pos] || s.pos || "?")}${isStr ? ' <span class="str-badge">抓</span>' : ""}${s.hero ? " ●我" : ""}${locked ? " ⚖" : ""}</div>
       <div class="stk">${esc(String(s.inactive ? "" : s.stk))}</div>
+      ${isStr ? `<div class="str-line">已下 2bb</div>` : ""}
     </div>`;
   }).join("");
 
@@ -2330,19 +2348,24 @@ function renderPokerTable(v, ruleInfo) {
       if (seat && seat.dataset.lockpos) openLockEditor(seat.dataset.lockpos);
     });
   }
-  // 底池：按「开池 2.5bb + 跟注」估算，展示用
-  const potTxt = v.street === "翻前" ? "" : (v.pot === "3BP" ? "~20bb" : v.pot === "4BP" ? "~50bb" : v.pot === "3人池" ? "~9bb" : "~6.5bb");
+  // 底池：按「开池 2.5bb + 跟注」估算，展示用；强抓多 2bb
+  let potTxt = "";
+  if (v.street !== "翻前") {
+    let base = v.pot === "3BP" ? 20 : v.pot === "4BP" ? 50 : v.pot === "3人池" ? 9 : 6.5;
+    if (straddle) base += 2;
+    potTxt = `~${base}bb` + (straddle ? "（含抓 2bb）" : "");
+  }
   const acts = (window.__nodeActions || []);
   const btnHTML = acts.map((a) => {
     const cls = a.kind === "allin" ? "pbtn danger" : a.kind === "fold" ? "pbtn muted" : a.kind === "check" ? "pbtn" : "pbtn primary";
     return `<button class="${cls}" data-act="${esc(a.label)}" data-kind="${esc(a.kind)}">${esc(a.label)}</button>`;
   }).join("");
 
-  box.innerHTML = `<div class="ptable">
+  box.innerHTML = `${straddle ? `<div class="str-banner">抓位：UTG · 2bb · 翻前最后行动</div>` : ""}<div class="ptable">
     ${seatHTML}
     <div class="pcenter">
       <div class="pcards">${shown.map(cardHTML).join("")}</div>
-      <div class="ppot">${v.street === "翻前" ? "翻前" : esc(v.board || "")}${potTxt ? `　·　底池 ${esc(potTxt)}` : ""}</div>
+      <div class="ppot">${v.street === "翻前" ? ("翻前" + (straddle ? " · 强抓" : "")) : esc(v.board || "")}${potTxt ? `　·　底池 ${esc(potTxt)}` : ""}</div>
     </div>
   </div>
   <div id="playActions" class="play-actions"></div>
@@ -2369,6 +2392,137 @@ function boardSuitCount(board) {
   for (const m of String(board || "").matchAll(/([2-9TJQKA])([shdc])/gi)) cnt[m[2].toLowerCase()]++;
   return cnt;
 }
+// ── 具体组合（按牌面精确阻断）────────────────────────────
+// 169 格是「类别」，这里展开成 T♠7♥ 这种具体两张牌；
+// 牌面上已经出现的牌直接从组合里剔除。
+const _SUIT_ORDER = ["s", "h", "d", "c"];
+const _SUIT_SYM = { s: "♠", h: "♥", d: "♦", c: "♣" };
+
+function specificCombos(cid, board) {
+  if (!cid || cid.length < 2) return [];
+  const dead = new Set();
+  for (const m of String(board || "").matchAll(/([2-9TJQKA])([shdc])/gi)) {
+    dead.add(m[1].toUpperCase() + m[2].toLowerCase());
+  }
+  const r1 = cid[0], r2 = cid[1], kind = cid[2] || "";
+  const out = [];
+  const push = (a, b) => out.push({
+    label: a[0] + _SUIT_SYM[a[1]] + b[0] + _SUIT_SYM[b[1]],
+    dead: dead.has(a) || dead.has(b),
+  });
+  if (cid.length === 2) {
+    for (let i = 0; i < 4; i++)
+      for (let j = i + 1; j < 4; j++) push(r1 + _SUIT_ORDER[i], r1 + _SUIT_ORDER[j]);
+  } else if (kind === "s") {
+    for (const su of _SUIT_ORDER) push(r1 + su, r2 + su);
+  } else {
+    for (const s1 of _SUIT_ORDER)
+      for (const s2 of _SUIT_ORDER)
+        if (s1 !== s2) push(r1 + s1, r2 + s2);
+  }
+  return out;
+}
+
+function comboChipsHtml(cid, board, freqHtml) {
+  const all = specificCombos(cid, board);
+  if (!all.length) return "";
+  const alive = all.filter((x) => !x.dead);
+  const blocked = all.length - alive.length;
+  const chips = all.map((x) =>
+    `<span class="combo-chip${x.dead ? " dead" : ""}" title="${x.dead ? "这张牌在牌面上" : "可用组合"}">${x.label}</span>`).join("");
+  return `<div class="combo-box">
+    <div class="combo-h">具体组合：剩余 <b>${alive.length}</b>/${all.length}` +
+    (blocked ? `（${blocked} 个被牌面阻断）` : "") + `</div>
+    <div class="combo-list">${chips}</div>
+    ${freqHtml || ""}
+    <div class="combo-note">同一类别里的组合共享类别频率；牌面阻断只减少剩余组合数。</div>
+  </div>`;
+}
+
+function _suitCodeOfSym(sym) {
+  return Object.keys(SUIT_SYM).find((k) => SUIT_SYM[k] === sym) || "";
+}
+
+// 逐组合展示：每个具体花色组合的「动作/尺度 + 频率」
+function comboRowsHtml(cell, board) {
+  const all = specificCombos(cell.combo, board);
+  if (!all.length) return "";
+  const mix = (cell.mix || []).filter((m) => (m.freq || 0) > 0.05);
+  const isAir = ["纯空气", "后门空气", "空气"].includes(cell.cat || "");
+  const plan = (isAir && window.__bluffPlan && window.__bluffPlan.ok)
+    ? (window.__bluffPlan.ranked || []) : null;
+  const cnt = boardSuitCount(board);
+  const unavailable = !!cell.impossible;
+  const rows = all.map((x) => {
+    if (x.dead) {
+      return `<div class="cs-row dead"><b>${x.label}</b><span>牌面阻断</span></div>`;
+    }
+    let acts = mix.map((m) => ({
+      label: m.action || m.kind, freq: m.freq || 0, color: m.color, kind: m.kind,
+    }));
+    if (plan) {
+      const r = plan.find((y) => y.cards === x.label);
+      if (r && r.take !== undefined) {
+        const bet = acts.find((a) => a.kind !== "过牌" && a.kind !== "弃牌");
+        const f = Math.round((r.take || 0) * 100);
+        acts = [];
+        if (bet && f > 0) acts.push({ ...bet, freq: f });
+        if (f < 100) acts.push({ label: "过牌", freq: 100 - f, color: "#6b7d8f", kind: "过牌" });
+      }
+    } else if (!isAir && acts.length) {
+      // 同花面：手里有该花色 → 阻断对手坚果同花，下注频率上调
+      let adj = 0;
+      for (const sym of [...x.label]) {
+        if (!"♠♥♦♣".includes(sym)) continue;
+        const n = cnt[_suitCodeOfSym(sym)] || 0;
+        if (n >= 3) adj = Math.max(adj, 18);
+        else if (n === 2) adj = Math.max(adj, 6);
+      }
+      if (adj) {
+        const bet = acts.find((a) => a.kind !== "过牌" && a.kind !== "弃牌");
+        if (bet) {
+          bet.freq = Math.min(100, bet.freq + adj);
+          const others = acts.filter((a) => a !== bet && a.kind !== "过牌" && a.kind !== "弃牌");
+          const used = bet.freq + others.reduce((z, a) => z + a.freq, 0);
+          const pas = acts.find((a) => a.kind === "过牌" || a.kind === "弃牌");
+          if (pas) pas.freq = Math.max(0, 100 - used);
+          else if (used < 100) acts.push({ label: "过牌", freq: 100 - used, color: "#6b7d8f", kind: "过牌" });
+        }
+      }
+    }
+    const txt = unavailable
+      ? "不在范围"
+      : (acts.length
+          ? acts.map((a) => `<span style="color:${a.color}">${esc(a.label)}</span> ${Math.round(a.freq)}%`).join(" · ")
+          : "—");
+    return `<div class="cs-row${unavailable ? " dead" : ""}"><b>${x.label}</b><span>${txt}</span></div>`;
+  }).join("");
+  const alive = all.filter((x) => !x.dead).length;
+  return `<div class="combo-split">
+    <div class="combo-h">逐组合：剩余 <b>${alive}</b>/${all.length}` +
+      (unavailable ? `　<span style="color:#c96">（这手牌不在你的翻前范围，这条线拿不到）</span>` : "") +
+      `（每行＝这手具体花色牌的动作/尺度/频率）</div>
+    <div class="cs-list">${rows}</div>
+    <div class="combo-note">同类别默认同频；空气按 EV surplus 排序后逐组合不同；同花面持该花色会加阻断调整。</div>
+  </div>`;
+}
+
+function comboRowsSimple(cid, board, f) {
+  const all = specificCombos(cid, board);
+  if (!all.length) return "";
+  const txt = f
+    ? `加注 <b>${f.raise ?? 0}%</b>　跟注 <b>${f.call ?? 0}%</b>　弃/过 <b>${f.fold ?? 0}%</b>`
+    : "";
+  const rows = all.map((x) => x.dead
+    ? `<div class="cs-row dead"><b>${x.label}</b><span>牌面阻断</span></div>`
+    : `<div class="cs-row"><b>${x.label}</b><span>${txt}</span></div>`).join("");
+  return `<div class="combo-split">
+    <div class="combo-h">逐组合：剩余 <b>${all.filter((x) => !x.dead).length}</b>/${all.length}</div>
+    <div class="cs-list">${rows}</div>
+    <div class="combo-note">同一类别的组合共享这组频率；牌面阻断只减少剩余组合数。</div>
+  </div>`;
+}
+
 function comboVariants(cell, board) {
   // 关键：公共牌上的牌不可能在手上（card removal）
   const combo = cell.combo || "";
@@ -2766,13 +2920,21 @@ function bindSpotInputs() {
   });
 }
 
+function isStraddleTable() {
+  const sel = document.getElementById("treeTableType");
+  return !!(sel && String(sel.value).includes("强抓"));
+}
+
 function pfNextCandidates() {
   // 候选 = 还在牌局里的人（没弃牌）。
   // 关键：不能按「还没行动过」过滤 —— 4bet/5bet 就是同一个人再行动一次。
   const folded = new Set(Spot.state.seq.filter((x) => x.kind === "fold").map((x) => x.pos));
   const all = pfPositionsAll();
-  const alive = all.filter((p) => !folded.has(p));
-  return alive;
+  // 强抓：UTG 是抓位（2bb），翻前先行动从 UTG1 开始，抓位最后行动。
+  const order = isStraddleTable()
+    ? [...all.filter((p) => p !== "UTG"), ...(all.includes("UTG") ? ["UTG"] : [])]
+    : all;
+  return order.filter((p) => !folded.has(p));
 }
 
 function pfSeqRender() {
@@ -2789,7 +2951,11 @@ function pfSeqRender() {
   const cands = pfNextCandidates();
   // 按「第几次加注」给动作：开池 → 3bet → 4bet → 5bet(全下)
   const acts = Spot.nextActions();
+  const strTip = isStraddleTable()
+    ? `<div class="pf-str-tip">强抓：UTG 是<b>抓位</b>（先下 2bb），翻前从 <b>UTG1</b> 开始，UTG 最后行动。抓位专属范围暂按 UTG 近似。</div>`
+    : "";
   box.innerHTML = (steps || `<div class="pf-empty">还没有动作，从下方添加第一步</div>`)
+    + strTip
     + `<div class="pf-add">
         <select id="pfNextPos" class="pf-mini">${cands.map((p) => `<option>${p}</option>`).join("")}</select>
         <select id="pfNextAct" class="pf-mini">${acts.map((a) => `<option>${a}</option>`).join("")}</select>
@@ -2965,6 +3131,14 @@ async function pfShowRange(pos, kind, oppArg) {
     if (!d.ok) return null;
     const box = document.getElementById("treeGrid");
     const meta = document.getElementById("treeMeta");
+    // 翻前预览只有一套范围，不提供「对手视角」
+    const rv = document.getElementById("rangeView");
+    if (rv) rv.style.display = "none";
+    rangeView = "hero";
+    window.__villainRange = null;
+    window.__opponentFreq = null;
+    window.__villain2Range = null;
+    window.__opponent2Freq = null;
     if (box) {
       box.className = "treegrid";
       box.innerHTML = "";
@@ -2981,6 +3155,11 @@ async function pfShowRange(pos, kind, oppArg) {
           el.innerHTML = `<span class="cb">${c.combo}</span><span class="pct">${r>=ca?"加":"跟"}${r>=ca?r:ca}</span>`;
           el.title = `${c.combo}｜加 ${r}% 跟 ${ca}% 弃 ${fo}%`;
         }
+        el.onclick = () => {
+          const det = document.getElementById("treeDetail");
+          if (det) det.innerHTML = `<b>${esc(c.combo)}</b>｜翻前这一步` +
+            comboRowsSimple(c.combo, "", { raise: r, call: ca, fold: fo });
+        };
         box.appendChild(el);
       });
     }
@@ -3620,8 +3799,8 @@ function initPreflopUI() {
   // 桌型切换 → 位置列表 + 默认筹码 + 重新查
   const tt = document.getElementById("treeTableType");
   if (tt) tt.addEventListener("change", () => {
-    const hs = document.getElementById("treeHeroStack");
-    if (hs) hs.value = tt.value.startsWith("8") ? "200bb" : "100bb";
+    // 切桌型只换位置列表，不动筹码：筹码是独立控件，
+    // 原来切 8-max 会悄悄把 100bb 改成 200bb，结果跟着变，很难排查。
     fillPfSelects();
     fillPfLines();
     derivePreflopUI();
@@ -3657,20 +3836,28 @@ function bindRangeView() {
 function switchRangeTo(who) {
   const box = document.getElementById("treeGrid");
   const meta = document.getElementById("treeMeta");
-  const vr = window.__villainRange;
-  const freq = window.__opponentFreq;
   if (!box) return;
-  if (who !== "opponent") {
+  if (who !== "opponent" && who !== "opponent2") {
     rangeView = "hero";
     setRangeViewUI("hero");
     if (typeof loadTree === "function") loadTree();
     return;
   }
-  rangeView = "opponent";
-  setRangeViewUI("opponent");
+  const second = who === "opponent2";
+  const vr = second ? window.__villain2Range : window.__villainRange;
+  const freq = second ? window.__opponent2Freq : window.__opponentFreq;
+  if (!vr) {
+    // 没有第二个对手：别把视角停在一个空网格上
+    if (second) { rangeView = "hero"; setRangeViewUI("hero"); loadTree(); }
+    return;
+  }
+  rangeView = who;
+  setRangeViewUI(who);
   const st = window.__treeState || {};
-  const pos = st.villain || "对手";
-  if (!vr) return;
+  const pos = second ? (st.villain2 || "对手2") : (st.villain || "对手");
+  const vsRaw = second
+    ? ((document.getElementById("treeVsType2") || {}).value || "*")
+    : st.vs_type;
 
   const fm = {};
   (freq || []).forEach((x) => { fm[x.combo] = x; });
@@ -3703,9 +3890,18 @@ function switchRangeTo(who) {
       d.style.background = "#131313"; d.style.color = "#454545"; d.style.opacity = "0.55";
       d.innerHTML = `<span class="cb">${c.combo}</span><span class="pct">弃</span>`;
     }
+    d.onclick = () => {
+      const f = fm[c.combo] || {};
+      const freqHtml = (f.raise !== undefined)
+        ? `<div class="combo-freq">这个节点：加注 <b>${f.raise}%</b>　跟注 <b>${f.call}%</b>　弃/过 <b>${f.fold}%</b></div>`
+        : "";
+      const kindTxt = kind === "threebet" ? "3bet 范围" : kind === "call" ? "跟注范围" : "不在范围";
+      const det = document.getElementById("treeDetail");
+      if (det) det.innerHTML = `<b>${esc(c.combo)}</b>｜${kindTxt}` +
+        comboRowsSimple(c.combo, (window.__treeState || {}).board || "", f);
+    };
     box.appendChild(d);
   });
-  const vsRaw = st.vs_type;
   const vs = (!vsRaw || vsRaw === "*") ? "标准" : vsRaw;
   if (meta) meta.innerHTML = `👤 <b>${esc(pos)} 的完整范围</b> · 对手类型「${esc(vs)}」`
     + ` · <span style="color:#e06c75">3bet ${n3b} 类</span>`
@@ -4051,7 +4247,7 @@ function syncTableType() {
 function syncThirdPlayer() {
   const el = document.getElementById("treeVillain2");
   const pot = document.getElementById("treePot");
-  if (el && pot) el.style.display = pot.value === "3人池" ? "" : "none";
+  if (el && pot) el.style.display = (pot.value === "3人池" || pot.value === "3BP多人") ? "" : "none";
 }
 
 async function loadTree() {
@@ -4061,6 +4257,10 @@ async function loadTree() {
   if (!window.__lockInit) { window.__lockInit = 1; try { refreshLocks(); } catch (e) {} }
   if (!window.__pfInited) { window.__pfInited = 1; try { initPreflopUI(); } catch (e) { console.warn("pf:", e); } }
   if (!window.__rvInit) { window.__rvInit = 1; try { bindRangeView(); } catch (e) {} }
+  {
+    const rv = document.getElementById("rangeView");
+    if (rv) rv.style.display = "";
+  }
   syncTableType();
   // 翻前没有公共牌：隐藏「强抓折算」和「牌面写法」两段提示；翻后恢复
   {
@@ -4094,6 +4294,7 @@ async function loadTree() {
     runout: ($("#treeRunout") && $("#treeRunout").value) || "*",
     line: ($("#treeLine") && $("#treeLine").value) || "*",
     vs_type: ($("#treeVsType") && $("#treeVsType").value) || "*",
+    vs_type2: ($("#treeVsType2") && $("#treeVsType2").value) || "*",
     capped: ($("#treeCapped") && $("#treeCapped").value) || "*",
     path: ($("#treePath") && ($("#treePath").value || "").trim().toUpperCase()) || "",
   };
@@ -4127,6 +4328,12 @@ async function loadTree() {
       v.heroStack = half(v.heroStack);
       v.villainStack = half(v.villainStack);
     }
+  }
+  // 翻前没有序列：直接显示「我」的开池范围。
+  // 策略树里翻前的开池规则（R1009 等）桶表是空的，查出来会是 0% 全弃。
+  if (v.street === "翻前" && typeof Spot !== "undefined" && !Spot.line()) {
+    await pfShowRange(v.hero, "open", v.villain);
+    return;
   }
   // 翻前 + 已有序列：下面要显示「序列最后一步是什么」，而不是按位置
   // 去查一条「开池」规则 —— 否则 CO 3bet 之后会显示成 CO 的开池范围。
@@ -4192,12 +4399,15 @@ async function loadTree() {
   if ($("#treeSent")) $("#treeSent").innerHTML = treeSentence(v);
   loadVsType(v);
 
-  const role = roleFrom(v.hero, v.villain, v.opener, v.pot);
+  // 翻前节点角色固定 "*"：翻前规则不按 IP/OOP-PFR 分。
+  // 之前这里无条件 roleFrom，翻前请求带 IP-PFR 就查不到规则，
+  // 表格停在上一屏（看起来像「街道切了但牌桌没变」）。
+  const role = isPre ? "*" : roleFrom(v.hero, v.villain, v.opener, v.pot);
   const qs = new URLSearchParams({
     pot: v.pot, role,
     board: isPre ? "A72r" : v.board,
     street: v.street, action: v.action,
-    hero_pos: v.hero, opp_pos: (v.pot === "3人池" && v.villain2 && v.villain2 !== "*") ? (v.villain + "+" + v.villain2) : v.villain, stack: v.stack, villain_stack: (document.getElementById("treeVillainStack")||{}).value || "*", runout: v.runout, line: v.line, vs_type: v.vs_type, capped: v.capped, path: v.path,
+    hero_pos: v.hero, opp_pos: ((v.pot === "3人池" || v.pot === "3BP多人") && v.villain2 && v.villain2 !== "*") ? (v.villain + "+" + v.villain2) : v.villain, stack: v.stack, villain_stack: (document.getElementById("treeVillainStack")||{}).value || "*", runout: v.runout, line: v.line, vs_type: v.vs_type, vs_type2: v.vs_type2, capped: v.capped, path: v.path,
     hero_stack: v.heroStack, villain_stack: v.villainStack,
     // 勾上「混合策略」= 保留多尺度；不勾 = 简化（默认）
     multi: (() => {
@@ -4235,6 +4445,16 @@ async function loadTree() {
   window.__villainActions = r.villain_actions || [];
   window.__villainRange = r.villain_range || null;
   window.__opponentFreq = r.opponent_freq || null;
+  window.__villain2Range = r.villain2_range || null;
+  window.__opponent2Freq = r.opponent2_freq || null;
+  {
+    const rv2 = document.getElementById("rvOpp2");
+    if (rv2) rv2.style.display = window.__villain2Range ? "" : "none";
+    if (rangeView === "opponent2" && !window.__villain2Range) {
+      rangeView = "hero";
+      setRangeViewUI("hero");
+    }
+  }
   window.__treeState = v;
     window.__rangeBetPct = r.range_bet_pct;
   window.__treeCells = r.cells || [];
@@ -4350,38 +4570,17 @@ async function loadTree() {
         : `${c.combo}｜${c.cat}｜${c.bucket === null ? "未收录" : tag + " " + c.bucket + "%"}${blNote}`;
       d.onclick = () => {
         const head = folded
-          ? (v.street === "翻前"
-              ? `<b>${c.combo}</b> → <b style="color:#c96">翻前就该弃</b>（不在 ${v.hero} 的开池范围里），不存在翻后${tag}频率`
-              : `<b>${c.combo}</b>｜${c.cat} → <b style="color:#c96">这个节点不下注（过牌）</b>${bl ? `｜surplus 最好 #${bl.best_rank}（本类 ${bl.of} 手，选中 ${bl.selected}）` : ""}`)
+          ? (c.impossible
+              ? `<b>${c.combo}</b> → <b style="color:#c96">不在 ${v.hero} 的翻前范围</b>（这条线拿不到这手牌），下面只列组合，不给频率`
+              : (v.street === "翻前"
+                ? `<b>${c.combo}</b> → <b style="color:#c96">翻前就该弃</b>（不在 ${v.hero} 的开池范围里），不存在翻后${tag}频率`
+                : `<b>${c.combo}</b>｜${c.cat} → <b style="color:#c96">这个节点不下注（过牌）</b>${bl ? `｜surplus 最好 #${bl.best_rank}（本类 ${bl.of} 手，选中 ${bl.selected}）` : ""}`))
           : (c.mix && c.mix.length
               ? `<b>${c.combo}</b>｜${c.cat}｜` + c.mix.map((m) =>
                   `<span style="display:inline-block;width:10px;height:10px;background:${m.color};border-radius:2px;margin-left:8px;vertical-align:middle"></span> <b>${esc(m.action)}</b> ${m.freq}%`).join("")
               : `<b>${c.combo}</b> → 类别 <b>${c.cat}</b> → ${tag}频率 <b>未收录</b>`);
-        // 单牌细分：同花牌按具体花色拆开
-        const vars = folded ? [] : comboVariants(c, v.board);
-        const split = vars.length ? `
-          <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
-            ${vars.map((x) => {
-              if (x.dead) {
-                return `<div style="background:#14181c;border:1px dashed #3a444d;border-radius:6px;padding:5px 10px;text-align:center;opacity:.55">
-                  <div style="font-size:13px;color:#5d6d7e;text-decoration:line-through">${x.label}</div>
-                  <div style="font-weight:700;color:#5d6d7e">不可能</div>
-                  <div style="font-size:11px;color:#4a545e">牌在公共牌上</div>
-                </div>`;
-              }
-              const isBlock = x.adj > 0;
-              return `<div style="background:${isBlock ? "#1d3a2a" : "#1a1f26"};border:1px solid ${isBlock ? "#3d8b66" : "#2b333c"};border-radius:6px;padding:5px 10px;text-align:center">
-                <div style="font-size:13px;color:${x.suit === "h" || x.suit === "d" ? "#e06c5a" : "#cfd8e3"}">${x.label}</div>
-                <div style="font-weight:700;color:#fff">${x.bucket === null ? "—" : x.bucket + "%"}</div>
-                ${x.adj ? `<div style="font-size:11px;color:#7ddc9f">${x.adj > 0 ? "+" : ""}${x.adj} 阻断</div>` : `<div style="font-size:11px;color:#5d6d7e">基准</div>`}
-              </div>`;
-            }).join("")}
-          </div>
-          <div class="muted" style="font-size:11.5px;margin-top:4px">
-            牌面同花：${Object.entries(boardSuitCount(v.board)).filter(([, n]) => n).map(([k, n]) => SUIT_SYM[k] + n).join(" ") || "无"}　
-            存活组合 <b>${vars.filter((x) => !x.dead).length}</b>/${vars.length}　
-            持同花色的牌阻断对手的坚果同花，所以频率上调
-          </div>` : "";
+        // 逐组合：每个具体花色牌的尺度/频率 + 牌面阻断
+        const split = comboRowsHtml(c, v.board);
         $("#treeDetail").innerHTML = head + split + bluffDetailHtml(c.combo) +
           (rule.note ? `　<span style="color:#6b6b6b">${rule.note}</span>` : "") +
           `　<span style="color:#6b6b6b">（${rule.source} · 置信 ${rule.conf}）</span>`;
@@ -4403,6 +4602,8 @@ async function loadTree() {
     // 如果当前停在「对手」视角，重绘后继续保持
     if (rangeView === "opponent" && window.__villainRange) {
       try { switchRangeTo("opponent"); } catch (e) {}
+    } else if (rangeView === "opponent2" && window.__villain2Range) {
+      try { switchRangeTo("opponent2"); } catch (e) {}
     }
     // 深链：URL 带 ?combo=A5s 时自动点开那手牌（要放在图例之后，否则会被覆盖）
     try {

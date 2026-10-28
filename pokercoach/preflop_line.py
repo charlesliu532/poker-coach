@@ -114,6 +114,16 @@ def _spec_and_label(pos: str, act: str, opponent: str, raises_before: int,
                 return spec, f"{pos} 对 {opponent} 的 3bet 范围", "GTO 对位表"
         if act == "call":
             if raises_before <= 1:
+                # BB 的平跟用课程防守表（BB_VS_BTN/BB_VS_UTG）：
+                # GTO 表比课程窄，会把 T7o 这类牌直接判成不在范围，
+                # 和「对手范围」那边用的 BB 防守表对不上。
+                if base_pos == "BB":
+                    try:
+                        spec = _pf.get("BB", opponent)
+                    except Exception:
+                        spec = None
+                    if spec:
+                        return spec, f"BB 对 {opponent} 开池的跟注范围", "课程 BB 防守表"
                 spec = _pf.threebet_call(pos, opponent)
                 if spec:
                     return spec, f"{pos} 对 {opponent} 开池的跟注范围", "GTO 平跟表"

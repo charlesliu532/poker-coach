@@ -632,6 +632,27 @@ button.ghost:hover { color: var(--red); }
   .bl-chip i { font-style:normal; font-size:10.5px; opacity:.8; }
   .bl-note { margin-top:7px; font-size:11px; color:#5d6d7e; line-height:1.5; }
 
+  /* 具体组合：169 格展开成 T♠7♥ */
+  .combo-box { margin-top:9px; }
+  .combo-h { font-size:12px; color:#8fa3b8; }
+  .combo-list { display:flex; flex-wrap:wrap; gap:4px; margin-top:5px; }
+  .combo-chip { font-size:11px; padding:2px 7px; border-radius:10px; background:#1a2027;
+    border:1px solid #2a333c; color:#cfd8e3; font-variant-numeric:tabular-nums; }
+  .combo-chip.dead { color:#4a545e; text-decoration:line-through; background:#12161a;
+    border-style:dashed; opacity:.65; }
+  .combo-freq { margin-top:6px; font-size:12px; color:#c3ced9; }
+  .combo-freq b { color:#ffd479; }
+  .combo-note { margin-top:5px; font-size:10.5px; color:#5d6d7e; }
+  .combo-split { margin-top:9px; }
+  .cs-list { display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:3px 10px; margin-top:5px; }
+  .cs-row { display:flex; justify-content:space-between; gap:8px; font-size:11.5px;
+    padding:2px 6px; border-radius:4px; background:#12171d; }
+  .cs-row b { color:#e6edf3; font-weight:600; min-width:52px; }
+  .cs-row span { color:#8fa3b8; text-align:right; }
+  .cs-row.dead { opacity:.5; }
+  .cs-row.dead b { text-decoration:line-through; color:#5d6d7e; }
+  .cs-row.dead span { color:#4a545e; }
+
   .mix-summary:empty { display:none; }
   .mix-summary { margin-top:10px; background:#12171d; border-radius:8px; padding:10px 12px; }
   .mix-head { font-size:12.5px; color:#9aa7b8; margin-bottom:6px; }
@@ -662,6 +683,15 @@ button.ghost:hover { color: var(--red); }
   /* 左侧序列区空状态（P1-4） */
   .pf-seq .pf-empty { border:1px dashed #2a333d; border-radius:8px;
     padding:14px; text-align:center; color:#5d6d7e; font-size:12px; }
+  .pf-str-tip { flex-basis:100%; font-size:11.5px; color:#c9a227; background:#2a2413;
+    border:1px solid #4a3d1a; border-radius:6px; padding:6px 9px; line-height:1.5; }
+  .pf-str-tip b { color:#ffd479; }
+  .pseat.str { border-color:#c9a227; box-shadow:0 0 0 1px rgba(201,162,39,.35); }
+  .str-banner { font-size:11.5px; color:#c9a227; margin:2px 0 4px; }
+  .str-banner::before { content:"◆ "; }
+  .str-badge { display:inline-block; font-size:9.5px; padding:0 5px; border-radius:8px;
+    background:#c9a227; color:#1a1408; font-weight:700; vertical-align:middle; }
+  .str-line { font-size:9.5px; color:#c9a227; margin-top:1px; }
 
   .pf-add { display:flex; gap:8px; align-items:center; margin-top:8px; }
   .pf-mini { width:auto !important; min-width:96px; max-width:140px;

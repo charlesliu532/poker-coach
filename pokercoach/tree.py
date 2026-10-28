@@ -229,6 +229,40 @@ def _load(root: Path):
     _LOAD_CACHE[str(root)] = (stamp, rules, buckets)
     return rules, buckets
 
+def _tendency_adj(vs_type):
+    """取这个形象在翻后的调整系数（配置优先，其次 playertypes 全量表）。"""
+    if not vs_type or vs_type in ("*", "任意"):
+        return None
+    try:
+        from . import config as _cfg
+        adj = _cfg.get("tendency", vs_type)
+    except Exception:
+        adj = None
+    if not adj:
+        try:
+            from .playertypes import TENDENCY_ADJUST
+            adj = TENDENCY_ADJUST.get(vs_type)
+        except Exception:
+            adj = None
+    return adj
+
+
+def _tendency_delta(vs_type, node_action, cat):
+    """这一格因为对手形象，频率该乘多少。"""
+    adj = _tendency_adj(vs_type)
+    if not adj:
+        return 0.0
+    defending = any(k in (node_action or "") for k in ("小注", "中注", "大注", "加注", "3bet", "4bet"))
+    cat = cat or ""
+    if defending:
+        return float(adj.get("bluff_catch") or 0) if cat in ("中对", "底对", "顶对弱踢", "A大") else 0.0
+    if cat in ("纯空气", "后门空气"):
+        return float(adj.get("bluff") or 0)
+    if cat in ("顶对弱踢", "中对"):
+        return float(adj.get("value_thin") or 0)
+    return 0.0
+
+
 def apply_tendency(cells, node_action, vs_type):
     """轴二：按对手翻后倾向，直接改桶表数值。
 
@@ -237,13 +271,7 @@ def apply_tendency(cells, node_action, vs_type):
     """
     if not vs_type or vs_type in ("*", "任意"):
         return cells, None
-    try:
-        from . import config as _cfg
-        adj = (_cfg.get("tendency", vs_type)
-               or (_cfg.DEFAULT.get("tendency") or {}).get(vs_type))
-    except Exception:
-        from .playertypes import TENDENCY_ADJUST
-        adj = TENDENCY_ADJUST.get(vs_type)
+    adj = _tendency_adj(vs_type)
     if not adj:
         return cells, None
 
@@ -709,6 +737,12 @@ def _typed_ranges(opp_pos, hero, vs_type, pot="SRP"):
     return call_set, bet_set
 
 
+def split_opp(opp_pos: str):
+    """多人池的 opp_pos 形如 "BB+HJ" → ("BB", "HJ")。"""
+    parts = [p.strip().upper() for p in str(opp_pos or "").split("+") if p.strip()]
+    return (parts[0] if parts else ""), (parts[1] if len(parts) > 1 else "")
+
+
 def opponent_range_cells(opp_pos: str, hero_pos: str, pot: str = "SRP", role: str = "",
                          vs_type: str = "*", in_range=None, villain_action: str = ""):
     """对手的完整翻前范围（跟注 + 3bet），带类型标记。
@@ -1016,6 +1050,8 @@ def _freq_display(cells, board_cards, preflop: bool, node_action: str = "") -> d
     acts = []
     for d in agg.values():
         d["combos"] = round(d["combos"], 1)
+        if d["combos"] <= 0.05:
+            continue          # 0 频率的尺度不要进图例
         d["pct"] = round(100.0 * d["combos"] / max(1e-6, total), 1)
         acts.append(d)
     acts.sort(key=lambda x: (x["kind"] == "过牌" or x["kind"] == "弃牌", -x["combos"]))
@@ -1037,6 +1073,95 @@ def _cards_label(c1: int, c2: int) -> str:
     a, b = (c1, c2) if c1 // 4 >= c2 // 4 else (c2, c1)
     return (f"{_RANK_CN_4[a // 4]}{_SUIT_CN_4[a % 4]}"
             f"{_RANK_CN_4[b // 4]}{_SUIT_CN_4[b % 4]}")
+
+
+_MIX_COLORS = ["#e07b39", "#c0392b", "#8e44ad", "#2e86c1", "#d9822b", "#3ba55d"]
+
+
+def _multi_size_mix(hits, buckets, cid, cat, preflop, unit, node_action, vs_type):
+    """同一节点多条尺度规则 → 这手牌在每个尺度上的频率。
+
+    每条规则的表是「这手牌在这个尺度下注多少」的独立估计。
+    多个尺度并存时：
+      1. 取各表值的平均作为这手牌的总下注频率；
+      2. 叠对手形象（bluff / value_thin / bluff_catch）；
+      3. 按 EQR 分配到大/小尺度（能兑现权益的牌偏大注，空气偏小注）。
+    返回 (parts, rest)，parts 的 pct 之和 = 总频率。
+    """
+    best = {}
+    RANK = {"求解": 6, "课程": 5, "课程+蓝图": 5, "蓝图": 4,
+            "Upswing": 4, "Smash": 4, "红线蓝图": 4, "Overbankroll": 4, "推导": 1}
+    for h in hits:
+        sz = (h.get("sizing") or "").strip()
+        if not sz or sz in ("*", "—") or any(k in sz for k in ("Donk", "弃", "<", ">", "频率")):
+            continue
+        sc = RANK.get(h.get("source"), 0)
+        if sz not in best or sc > best[sz][0]:
+            best[sz] = (sc, h)
+    if len(best) < 2:
+        return None
+
+    raw = []
+    for sz, (_sc, h) in best.items():
+        tid = h.get("bucket_table") or ""
+        if preflop:
+            v, _m = bucket_of_exact(cid, tid, buckets)
+        else:
+            v, _m = bucket_of(cat or "", tid, buckets)
+        if v is None or int(v) <= 0:
+            continue
+        raw.append((sz, h, float(v)))
+    if not raw:
+        return None
+    # 只出现在一个尺度表里的牌也要用那个尺度（比如只有大注表收录的牌），
+    # 不能因为没有第二个值就退回主规则显示 0。
+
+    # 总频率：各规则估计的均值 × 形象调整
+    total = sum(v for _s, _h, v in raw) / len(raw)
+    delta = _tendency_delta(vs_type, node_action, cat)
+    if delta:
+        total *= (1.0 + delta)
+    total = max(0.0, min(100.0, total))
+    if total <= 0.5:
+        return None
+
+    # EQR 决定偏大还是偏小
+    eqr = 1.0
+    try:
+        if preflop:
+            from .eqr import get as _eqr_get
+            eqr = _eqr_get(cid, True, 6.0)["eqr"]
+        else:
+            from .eqr import from_board_cat as _fbc
+            eqr = _fbc(cat or "", True, 6.0)["eqr"]
+    except Exception:
+        pass
+
+    def _num(sz):
+        nums = parse_sizings(sz)
+        return float(nums[0]) if nums else 50.0
+
+    raw.sort(key=lambda x: _num(x[0]))
+    weights = []
+    for sz, _h, _v in raw:
+        bias = 1.0 + (eqr - 1.0) * (_num(sz) - 50.0) / 50.0
+        weights.append(max(0.15, bias))
+    wsum = sum(weights) or 1.0
+
+    parts = []
+    for i, ((sz, h, _v), w) in enumerate(zip(raw, weights)):
+        try:
+            base = action_mix(_v, unit, h.get("node_action") or node_action, sz)[0]
+            label = base["action"]
+        except Exception:
+            label = f"下注 {sz}"
+        parts.append({
+            "action": label, "label": sz, "sizing": sz, "kind": label,
+            "pct": round(total * w / wsum, 1),
+            "color": _MIX_COLORS[i % len(_MIX_COLORS)],
+        })
+    rest = max(0.0, 100.0 - sum(p["pct"] for p in parts))
+    return parts, rest
 
 
 def _apply_bluff_selection(cells, hero_set, villain_set, board, sizing,
@@ -1093,6 +1218,8 @@ def _apply_bluff_selection(cells, hero_set, villain_set, board, sizing,
     changed = False
     for c in cells:
         cid = c.get("combo")
+        if c.get("multi"):
+            continue
         if (c.get("cat") or "") not in ("纯空气", "后门空气", "空气"):
             continue
         if cid not in take_by_cls or (c.get("bucket") or 0) <= 0:
@@ -1162,7 +1289,7 @@ def grid(root: Path, pot: str, role: str, board_text: str, street: str, action: 
          runout: str = "*", line: str = "*", vs_type: str = "*", capped: str = "*",
          path: str = "", hero_stack: str = "*", villain_stack: str = "*",
          multi: bool = False, simplify: bool = False, locks=None,
-         preflop_line: str = ""):
+         preflop_line: str = "", vs_type2: str = "*"):
     rules, buckets = _load(root)
     try:
         cards, pat = parse_board(board_text or "A72r")
@@ -1192,9 +1319,12 @@ def grid(root: Path, pot: str, role: str, board_text: str, street: str, action: 
         stack = f"{eff:g}bb{suffix}"
         eff_note = eff_note or f"{eff:g}bb"
 
+    opp1, opp2 = split_opp(opp_pos)
+    if not opp1:
+        opp1 = opp_pos or "*"
     q = {
         "pot_type": pot, "role": role, "street": street, "node_action": action,
-        "hero_pos": hero_pos or "*", "opp_pos": opp_pos or "*", "stack": stack or "*",
+        "hero_pos": hero_pos or "*", "opp_pos": opp1, "stack": stack or "*",
         "runout": runout or "*", "line": line or "*", "vs_type": vs_type or "*",
         "capped": capped or "*", "path": path or "", "board_class": bclass,
         "_board": board_text,
@@ -1222,6 +1352,12 @@ def grid(root: Path, pot: str, role: str, board_text: str, street: str, action: 
         # 退到「按牌面类别」再找一次
         q2 = dict(q, board_class=bclass)
         hits, approx = _match(q2)
+    if not hits and street == "翻前" and str(stack or "*") not in ("*", "", "100bb"):
+        # 翻前表只有 100bb/200bb 等几档；强抓折半后 50bb 会查不到。
+        # 退到 100bb 开池表并标注，别让翻前一屏直接空掉。
+        hits = find_rule(rules, dict(q, stack="100bb"), strict_vs=True)
+        if hits:
+            approx = f"翻前没有 {stack} 的专门表，按 100bb 开池表近似"
     if not hits and action == "无" and "caller" in (role or ""):
         # 翻前跟注方先行动：库里只有「我方领打 / 领打（小注）」这两个
         # donk 分支，没有「过牌后对手行动」的节点。退到领打分支并明确标注，
@@ -1266,7 +1402,7 @@ def grid(root: Path, pot: str, role: str, board_text: str, street: str, action: 
     if preflop_line and not preflop:
         try:
             from .preflop_line import resolve as _resolve_pf
-            pf = _resolve_pf(hero_pos or "", opp_pos or "", preflop_line, vs_type)
+            pf = _resolve_pf(hero_pos or "", opp1, preflop_line, vs_type)
         except Exception:
             pf = {}
     hero_line_set = pf.get("hero_set") if pf.get("ok") else None
@@ -1303,8 +1439,13 @@ def grid(root: Path, pot: str, role: str, board_text: str, street: str, action: 
                       "matched": matched or cat, "mix": mixed, "folded": folded,
                       "impossible": outside})
 
-    # 对手倾向直接改数值
+    # 对手倾向直接改数值。
+    # 多人池：两个对手的形象都要算进来（叠乘），不能只看主对手。
     cells, tend_note = apply_tendency(cells, r.get("node_action") or action, vs_type)
+    if opp2 and vs_type2 and vs_type2 not in ("*", "任意"):
+        cells, _n2 = apply_tendency(cells, r.get("node_action") or action, vs_type2)
+        if _n2:
+            tend_note = (tend_note + "；" + _n2) if tend_note else _n2
 
     # 尺度个数 → 混合/简化判定（用原始值）
     def _sz(h):
@@ -1327,20 +1468,54 @@ def grid(root: Path, pot: str, role: str, board_text: str, street: str, action: 
                                       r.get("node_action") or action, r.get("sizing") or "")
                 c["folded"] = int(c["bucket"]) == 0
 
+    # ── 多尺度并存：逐格把频率分到每个尺度上 ──────────────────
+    # 以前只把多个尺度列在 meta 里，格子仍按主规则一个尺度渲染。
+    # 勾了「混合策略」才拆；简化模式还是一个代表尺度。
+    if (not simplify) and len(hits) > 1:
+        for c in cells:
+            if c.get("impossible") or c.get("bucket") is None:
+                continue
+            try:
+                got = _multi_size_mix(
+                    hits, buckets, c.get("combo"), c.get("cat"), preflop,
+                    unit, r.get("node_action") or action, vs_type)
+            except Exception:
+                got = None
+            if not got:
+                continue
+            parts, rest = got
+            mix = list(parts)
+            if rest > 0.5:
+                pas = "弃牌" if preflop else PASSIVE_OF.get(r.get("node_action") or action, "过牌")
+                mix.append({"action": pas, "kind": pas, "freq": round(rest, 1),
+                            "color": ACTION_COLORS.get(pas, "#555"), "pct": round(rest, 1)})
+            # 统一成前端认识的 freq 字段
+            for p_ in mix:
+                p_["freq"] = p_.get("pct", p_.get("freq", 0))
+            c["mix"] = mix
+            c["bucket"] = round(sum(p_["freq"] for p_ in mix
+                                    if p_.get("kind") not in ("过牌", "弃牌")), 1)
+            c["multi"] = True
+            c["folded"] = c["bucket"] <= 0
+
     # ── 诈唬选牌：配额由 alpha 定，选哪几自由 EV surplus 排序定 ──
     # 只在「我方能主动下注」的翻后节点做；防守节点（面对下注）不动。
     bluff_plan = None
     _bluff_scale = 1.0
-    if vs_type and vs_type not in ("*", "任意"):
+    _btypes = [t for t in (vs_type, vs_type2)
+               if t and t not in ("*", "任意")]
+    if _btypes:
         try:
             from .playertypes import TENDENCY_ADJUST
-            _bluff_scale = 1.0 + float((TENDENCY_ADJUST.get(vs_type) or {}).get("bluff") or 0)
+            _bd = sum(float((TENDENCY_ADJUST.get(t) or {}).get("bluff") or 0)
+                      for t in _btypes) / len(_btypes)
+            _bluff_scale = 1.0 + _bd
         except Exception:
             _bluff_scale = 1.0
     if (not preflop) and _is_bet_node(action) and unit in ("下注率", "%", ""):
         try:
             _vset = villain_line_set or _opp_range_set(
-                opp_pos, hero_pos, pot, role, in_range=villain_line_set,
+                opp1, hero_pos, pot, role, in_range=villain_line_set,
                 villain_action=villain_line_act)
             bluff_plan, _changed = _apply_bluff_selection(
                 cells, in_range, _vset, cards, r.get("sizing") or "",
@@ -1351,7 +1526,7 @@ def grid(root: Path, pot: str, role: str, board_text: str, street: str, action: 
     # 用最终 bucket 重建混合：倾向调整 / 简化 / 诈唬截断都可能改过值，
     # 不重建的话界面上看到的还是旧频率。
     for c in cells:
-        if c.get("impossible") or c.get("bucket") is None:
+        if c.get("impossible") or c.get("bucket") is None or c.get("multi"):
             continue
         c["mix"] = action_mix(c["bucket"], unit,
                               r.get("node_action") or action, r.get("sizing") or "")
@@ -1414,20 +1589,26 @@ def grid(root: Path, pot: str, role: str, board_text: str, street: str, action: 
         "multi_rules": multi_rules,
         "range_bet_pct": range_bet_pct,
         "opp_pos": opp_pos,
-        "villain_range": opponent_range_cells(opp_pos, hero_pos, pot, role, vs_type,
+        "villain_range": opponent_range_cells(opp1, hero_pos, pot, role, vs_type,
                                                in_range=villain_line_set,
                                                villain_action=villain_line_act),
         "opponent_freq": (None if preflop else
                           opponent_frequencies(root, board_text, street,
-                                               opp_pos, hero_pos, vs_type,
+                                               opp1, hero_pos, vs_type,
                                                in_range=(villain_line_set or
-                                                         _opp_range_set(opp_pos, hero_pos, pot, role)))),
+                                                         _opp_range_set(opp1, hero_pos, pot, role)))),
+        "villain2_range": (opponent_range_cells(opp2, hero_pos, pot, role, vs_type2)
+                           if opp2 else None),
+        "opponent2_freq": (None if (preflop or not opp2) else
+                           opponent_frequencies(root, board_text, street,
+                                                opp2, hero_pos, vs_type2,
+                                                in_range=_opp_range_set(opp2, hero_pos, pot, role))),
         # ── 快速修正层（CFR 思想，毫秒级）：用真实牌面算范围优势，微调规则尺度 ──
-        "live": _live_advice(hero_pos, opp_pos, board_text,
+        "live": _live_advice(hero_pos, opp1, board_text,
                              r.get("sizing") or "", pot, role,
                              hero_range=(pf.get("hero_range") if pf.get("ok") else None),
                              villain_range=(pf.get("villain_range") if pf.get("ok") else None)),
-        "locked": _locked_advice(locks, hero_pos, opp_pos, board_text,
+        "locked": _locked_advice(locks, hero_pos, opp1, board_text,
                                  r.get("sizing") or "", pot),
         "approx": approx,
         "effective_stack": eff_note,
