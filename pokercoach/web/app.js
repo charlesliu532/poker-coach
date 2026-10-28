@@ -4011,7 +4011,6 @@ async function loadTree() {
   const v = {
     heroStack: ($("#treeHeroStack") && $("#treeHeroStack").value) || "*",
     villainStack: ($("#treeVillainStack") && $("#treeVillainStack").value) || "*",
-    stack: ($("#treeStack") && $("#treeStack").value) || "*",
     hero: $("#treeHero").value,
     villain: $("#treeVillain").value,
     villain2: ($("#treeVillain2") && $("#treeVillain2").value) || "*",
@@ -4083,6 +4082,21 @@ async function loadTree() {
       await pfShowRange(last.pos, kind, oppPos);
       return;
     }
+  }
+  // 有效筹码：用两个下拉框算，不要读不存在的 #treeStack（以前永远 "*"，
+  // 所以「筹码 / 对手筹码」两个控件对策略完全没有影响）。
+  {
+    const num = (x) => {
+      const n = parseFloat(String(x));
+      return Number.isNaN(n) ? null : n;
+    };
+    const hs = num(v.heroStack);
+    const vs = num(v.villainStack);
+    let eff = null;
+    if (hs != null && vs != null) eff = Math.min(hs, vs);
+    else if (hs != null) eff = hs;
+    else if (vs != null) eff = vs;
+    v.stack = eff != null ? `${eff}bb` : "*";
   }
   const isPre = v.street === "翻前";
   const bEl = $("#treeBoard");
@@ -4204,8 +4218,9 @@ async function loadTree() {
     if (r.approx) {
       meta.textContent += ` · ⚠ ${r.approx}`;
     }
-    if (r.tendency_note) {
-      meta.textContent += ` · 已按「${v.vs_type}」调整数值：${r.tendency_note}`;
+    const _tnote = r.tendency_note || r.adjust;
+    if (_tnote) {
+      meta.textContent += ` · 已按「${v.vs_type}」调整数值：${_tnote}`;
     }
     if (r.conflicts && r.conflicts.length) {
       meta.textContent += r.hold ? ` · 并存（已裁决）${r.conflicts.join("/")}` : ` · ⚠ 并存 ${r.conflicts.join("/")}`;

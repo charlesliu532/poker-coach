@@ -250,6 +250,7 @@ def apply_tendency(cells, node_action, vs_type):
     # 判断这是「防守表」（对手下注/加注）还是「进攻表」
     defending = any(k in node_action for k in ("小注", "中注", "大注", "加注", "3bet", "4bet"))
     out = []
+    changed = False
     for c in cells:
         if c.get("bucket") is None:
             out.append(c); continue
@@ -269,12 +270,24 @@ def apply_tendency(cells, node_action, vs_type):
         if delta:
             c = dict(c)
             c["bucket"] = max(0, min(100, round(v * (1 + delta))))
-            c["adjusted"] = f"{v} → {c['bucket']}"
+            if c["bucket"] != v:
+                changed = True
+                c["adjusted"] = f"{v} → {c['bucket']}"
         out.append(c)
-    return out, adj["note"]
+    # 没改到任何一格（比如这张表只有「空气」大类）就不要在界面上说
+    # 「已按某形象调整数值」——那是假信息。
+    return out, (adj["note"] if changed else None)
 
 
-def find_rule(rules, q):
+def find_rule(rules, q, strict_vs: bool = False):
+    """按字段匹配规则。
+
+    strict_vs=True：对手类型也必须一致。
+      - 查询指定了类型（跟注站）：只留同类型的剥削规则 + 通用规则
+      - 查询是「任意」：只留通用规则，不让「vs 受气包」这种规则顶上来
+    没有严格匹配时，grid 会再用 strict_vs=False 兜底，并明确标注
+    「按某类型规则近似」。
+    """
     best, top = [], -1
     rules = [x for x in rules if x.get("status") != "retired"]
     for r in rules:
@@ -299,8 +312,15 @@ def find_rule(rules, q):
         vt = (r.get("vs_type") or "*").strip()
         qvt = (q.get("vs_type") or "*").strip()
         # 只有查询真的指定了对手类型，剥削规则才优先——否则通用规则应当胜出
-        if vt not in WILD and qvt not in WILD:
-            extra += 1
+        if vt not in WILD:
+            if qvt in WILD:
+                if strict_vs:
+                    continue
+            elif vt != qvt:
+                if strict_vs:
+                    continue
+            else:
+                extra += 1
         for f in FIELDS:
             v = (r.get(f) or "*").strip()
             qv = (q.get(f) or "*").strip()
@@ -1019,7 +1039,8 @@ def _cards_label(c1: int, c2: int) -> str:
             f"{_RANK_CN_4[b // 4]}{_SUIT_CN_4[b % 4]}")
 
 
-def _apply_bluff_selection(cells, hero_set, villain_set, board, sizing):
+def _apply_bluff_selection(cells, hero_set, villain_set, board, sizing,
+                           target_scale: float = 1.0):
     """把「空气统一 80% 下注」改成「按 surplus 排序，只留配额内的那几手」。
 
     返回 (给 UI 的计划, 是否改过 bucket)。失败返回 (None, False)。
@@ -1058,7 +1079,8 @@ def _apply_bluff_selection(cells, hero_set, villain_set, board, sizing):
         cls = combo_to_hand(a, b)
         by_cls[cls] = by_cls.get(cls, 0) + 1
 
-    p = _bluff_plan(cells, hero_combos, board or [], villain_combos, size_pct)
+    p = _bluff_plan(cells, hero_combos, board or [], villain_combos, size_pct,
+                    target_scale=target_scale)
     if not p:
         return None, False
     if not p.get("ok"):
@@ -1179,29 +1201,45 @@ def grid(root: Path, pot: str, role: str, board_text: str, street: str, action: 
         "hero_stack": hero_stack or "*", "villain_stack": villain_stack or "*",
     }
 
-    hits = find_rule(rules, q)
-    approx = ""
+    # 先严格匹配对手类型，没有通用规则时才允许「按某类型规则近似」。
+    # 否则 q.vs_type="*" 时一条「vs 受气包」的规则会直接顶上来，
+    # 界面上却写着「对手：任意」——结果和规则对不上。
+    def _match(qq):
+        hs = find_rule(rules, qq, strict_vs=True)
+        if hs:
+            return hs, ""
+        hs = find_rule(rules, qq, strict_vs=False)
+        if hs:
+            vt = (hs[0].get("vs_type") or "*").strip()
+            if vt not in WILD:
+                return hs, f"没有通用规则，按「{vt}」型规则近似"
+        return hs, ""
+
+    hits, _note = _match(q)
+    approx = _note
     used_pot, used_action = pot, action
     if not hits:
         # 退到「按牌面类别」再找一次
         q2 = dict(q, board_class=bclass)
-        hits = find_rule(rules, q2)
+        hits, approx = _match(q2)
     if not hits and action == "无" and "caller" in (role or ""):
         # 翻前跟注方先行动：库里只有「我方领打 / 领打（小注）」这两个
         # donk 分支，没有「过牌后对手行动」的节点。退到领打分支并明确标注，
         # 否则 BB 跟注后一进翻后就变成「这条线还没录入」。
         for alt in ("我方领打", "我方领打（小注）"):
-            hits = find_rule(rules, dict(q, node_action=alt))
+            hits, _n2 = _match(dict(q, node_action=alt))
             if hits:
                 approx = f"先行动节点退到「{alt}」（这是领打/Donk 分支，不是过牌分支）"
+                if _n2:
+                    approx += "；" + _n2
                 used_action = alt
                 break
     if not hits:
         for alt_pot, alt_action, why in _approx_chain(pot, action):
             q3 = dict(q, pot_type=alt_pot, node_action=alt_action)
-            hits = find_rule(rules, q3)
+            hits, _n3 = _match(q3)
             if hits:
-                approx = why
+                approx = why + (("；" + _n3) if _n3 else "")
                 used_pot, used_action = alt_pot, alt_action
                 break
     if not hits:
@@ -1273,6 +1311,11 @@ def grid(root: Path, pot: str, role: str, board_text: str, street: str, action: 
         return (h.get("sizing") or "").strip()
     _nsize = len({_sz(h) for h in hits if _sz(h) not in ("", "—", "*")}) or 1
     _mode = node_is_mixable(cells, street, _nsize)
+    if not simplify:
+        # 勾了「混合策略」= 不吸附档位，模式就应该是混合，
+        # 不能还显示「简化」（那是按原始误差推的标签）。
+        _mode = dict(_mode, mode="混合", avg_err=0.0,
+                     reason="未简化：保留原始桶值")
 
     # 简化：吸附到固定档位
     if simplify:
@@ -1287,13 +1330,21 @@ def grid(root: Path, pot: str, role: str, board_text: str, street: str, action: 
     # ── 诈唬选牌：配额由 alpha 定，选哪几自由 EV surplus 排序定 ──
     # 只在「我方能主动下注」的翻后节点做；防守节点（面对下注）不动。
     bluff_plan = None
+    _bluff_scale = 1.0
+    if vs_type and vs_type not in ("*", "任意"):
+        try:
+            from .playertypes import TENDENCY_ADJUST
+            _bluff_scale = 1.0 + float((TENDENCY_ADJUST.get(vs_type) or {}).get("bluff") or 0)
+        except Exception:
+            _bluff_scale = 1.0
     if (not preflop) and _is_bet_node(action) and unit in ("下注率", "%", ""):
         try:
             _vset = villain_line_set or _opp_range_set(
                 opp_pos, hero_pos, pot, role, in_range=villain_line_set,
                 villain_action=villain_line_act)
             bluff_plan, _changed = _apply_bluff_selection(
-                cells, in_range, _vset, cards, r.get("sizing") or "")
+                cells, in_range, _vset, cards, r.get("sizing") or "",
+                target_scale=_bluff_scale)
         except Exception:
             bluff_plan = None
 

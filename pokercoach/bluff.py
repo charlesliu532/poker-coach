@@ -150,7 +150,7 @@ def choose(ranked: list[dict], target_combos: float) -> list[dict]:
 
 
 def plan(cells, hero_combos, board, villain_combos, size_pct: float,
-         fold_base: float | None = None) -> dict | None:
+         fold_base: float | None = None, target_scale: float = 1.0) -> dict | None:
     """在节点上执行「配额 → 排序 → 选牌」，返回可展示的计划。
 
     cells 只用来读桶表给的下注率（价值/空气各有多少组合在打）；
@@ -186,6 +186,9 @@ def plan(cells, hero_combos, board, villain_combos, size_pct: float,
         return None
     air_available = sum(len(v) * float(c["bucket"]) / 100.0 for c, v in air_cells)
     quota = value_combos * t / max(1e-6, 1.0 - t)
+    # 对手形象：过度诈唬型 → 少诈唬；下注不足型 → 多诈唬。
+    # 必须在配额这一层乘，否则会被「按 alpha 截断空气」覆盖掉。
+    quota *= max(0.0, float(target_scale))
     target = min(quota, air_available)
     if target < 0.5 or target >= air_available * 0.98:
         return {"ok": False, "why": "配额与桶表接近，不需要重选诈唬",

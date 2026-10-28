@@ -161,6 +161,41 @@ class TestPreflopStepRange(unittest.TestCase):
         self.assertEqual(acts["AA"], "fold")
 
 
+class TestControlConformance(unittest.TestCase):
+    """各个控件要真的能影响规则；对手类型不能串台。"""
+
+    def _grid(self, **kw):
+        from pokercoach.paths import data_path
+        from pokercoach import tree
+        base = dict(root=data_path("tree"), pot="SRP", role="IP-PFR",
+                    board_text="A72r", street="翻牌", action="对手过牌",
+                    hero_pos="BTN", opp_pos="BB", stack="100bb",
+                    hero_stack="100bb", villain_stack="100bb", simplify=True)
+        base.update(kw)
+        return tree.grid(**base)
+
+    def test_stack_changes_rule(self):
+        r100 = self._grid(stack="100bb")
+        r20 = self._grid(stack="20bb", hero_stack="20bb", villain_stack="20bb")
+        self.assertTrue(r100["ok"] and r20["ok"])
+        self.assertNotEqual(r100["rule"]["rule_id"], r20["rule"]["rule_id"])
+        self.assertLess(r20["range_bet_pct"], r100["range_bet_pct"])
+
+    def test_any_type_does_not_pick_exploit_rule_silently(self):
+        # K83tt 100bb 没有通用规则，只有受气包规则：必须标「近似」
+        r = self._grid(board_text="K83tt", vs_type="*")
+        self.assertTrue(r["ok"])
+        self.assertIn("近似", r.get("approx") or "")
+        # 指定紧凶时不能拿受气包的规则
+        r2 = self._grid(board_text="K83tt", vs_type="紧凶")
+        self.assertFalse(r2["ok"])
+
+    def test_exploit_type_changes_bluff_quota(self):
+        base = self._grid(vs_type="*")
+        over = self._grid(vs_type="过度诈唬型")
+        self.assertLess(over["range_bet_pct"], base["range_bet_pct"])
+        self.assertIn("少诈唬", over.get("adjust") or "")
+
 class TestTreeIntegration(unittest.TestCase):
     """有数据文件时跑一遍真实节点：范围过滤 + 频率 + 诈唬计划都要在。"""
 
