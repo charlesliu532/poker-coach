@@ -1,5 +1,8 @@
 name: 打包扑克复盘台
 
+permissions:
+  contents: write      # 发 Release 需要写权限
+
 on:
   push:
     branches: [ main, master ]
@@ -11,9 +14,9 @@ jobs:
   windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 
@@ -32,7 +35,7 @@ jobs:
           if (-not (Test-Path "dist/扑克复盘台.exe")) { Write-Error "exe not found"; exit 1 }
 
       - name: 上传 exe
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: 扑克复盘台-Windows
           path: dist/扑克复盘台.exe
@@ -42,9 +45,9 @@ jobs:
   macos:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 
@@ -89,7 +92,7 @@ jobs:
           zip -rq 扑克复盘台-Mac.zip "扑克复盘台.app"
 
       - name: 上传 zip
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: 扑克复盘台-Mac
           path: dist/扑克复盘台-Mac.zip
@@ -98,12 +101,20 @@ jobs:
   # ── 发版时自动挂到 Releases ────────────────────────────
   release:
     needs: [windows, macos]
+    permissions:
+      contents: write
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
+        with:
+          path: artifacts
+      - name: 看下载到了什么
+        run: find artifacts -type f | head -20
       - uses: softprops/action-gh-release@v2
         with:
           files: |
-            **/扑克复盘台.exe
-            **/扑克复盘台-Mac.zip
+            artifacts/**/扑克复盘台.exe
+            artifacts/**/扑克复盘台-Mac.zip
+          fail_on_unmatched_files: false
+          generate_release_notes: true
