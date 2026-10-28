@@ -4619,6 +4619,14 @@ async function loadTree() {
   }
 }
 
+// 版本号：从 /health 读，显示在标题旁，方便确认装的是哪一版
+document.addEventListener("DOMContentLoaded", () => {
+  fetch("/health").then((r) => r.json()).then((d) => {
+    const el = document.getElementById("appVer");
+    if (el && d && d.app_version) el.textContent = "v" + d.app_version;
+  }).catch(() => {});
+});
+
 document.addEventListener("DOMContentLoaded", () => {
   domIdSelfCheck();
   treeSelfCheck();

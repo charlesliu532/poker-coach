@@ -218,7 +218,9 @@ class Handler(BaseHTTPRequestHandler):
             if url.path == "/api/config":
                 return self._json(self.coach.config_info())
             if url.path == "/health":
-                return self._json({"ok": True, "port": 8770, "version": "v10"})
+                from . import __version__ as _appver
+                return self._json({"ok": True, "port": getattr(self.server, "server_port", 8770),
+                                   "version": "v10", "app_version": _appver})
             if url.path == "/api/status":
                 return self._json(self._status())
             if url.path == "/api/search":

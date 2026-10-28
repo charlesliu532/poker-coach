@@ -33,12 +33,15 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Get-ChildItem dist
           if (-not (Test-Path "dist/扑克复盘台.exe")) { Write-Error "exe not found"; exit 1 }
+          # 中文文件名在 Release 里会被吃成 default.exe；用 ASCII + 版本号，
+          # 这样下载下来就知道是哪一版（v1.3 → pokercoach-v1.3-win64.exe）。
+          Copy-Item "dist/扑克复盘台.exe" "dist/pokercoach-${{ github.ref_name }}-win64.exe"
 
       - name: 上传 exe
         uses: actions/upload-artifact@v5
         with:
           name: 扑克复盘台-Windows
-          path: dist/扑克复盘台.exe
+          path: dist/pokercoach-${{ github.ref_name }}-win64.exe
           retention-days: 30
 
   # ── Mac 版 ─────────────────────────────────────────────
@@ -89,13 +92,13 @@ jobs:
       - name: 打 zip
         run: |
           cd dist
-          zip -rq 扑克复盘台-Mac.zip "扑克复盘台.app"
+          zip -rq "pokercoach-${{ github.ref_name }}-mac.zip" "扑克复盘台.app"
 
       - name: 上传 zip
         uses: actions/upload-artifact@v5
         with:
           name: 扑克复盘台-Mac
-          path: dist/扑克复盘台-Mac.zip
+          path: dist/pokercoach-${{ github.ref_name }}-mac.zip
           retention-days: 30
 
   # ── 发版时自动挂到 Releases ────────────────────────────
@@ -114,7 +117,7 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           files: |
-            artifacts/**/扑克复盘台.exe
-            artifacts/**/扑克复盘台-Mac.zip
+            artifacts/**/pokercoach-*-win64.exe
+            artifacts/**/pokercoach-*-mac.zip
           fail_on_unmatched_files: false
           generate_release_notes: true

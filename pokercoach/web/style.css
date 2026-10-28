@@ -386,6 +386,7 @@ button.ghost:hover { color: var(--red); }
 .treehead{font-weight:600;background:#f3efea;color:#6b6b6b}
 
 /* ---- 二级导航 ---- */
+.brand .ver{font-size:10.5px;color:#5d6d7e;margin-left:5px;font-weight:400;letter-spacing:.3px}
 .tabs button.sub{display:none}
 .subbar{display:flex;gap:6px;padding:8px 24px 0;flex-wrap:wrap}
 .subbar:empty{display:none}
