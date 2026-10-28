@@ -89,16 +89,20 @@
         <div class="step" style="grid-column:1/-1"><label>翻前序列</label>
           <div id="pfSeqBox" class="pf-seq"></div>
         </div>
+        <div class="step"><label>我在</label>
+          <select id="treeMe"><option>BTN</option></select>
+          <div class="hint" style="margin-top:2px;font-size:10.5px">默认=序列最后一个行动的人</div>
+        </div>
         <div class="step"><label>局面</label>
           <span id="potAuto" class="hint" style="align-self:center">SRP</span></div>
 
         <!-- ⑦ 对手形象 -->
-        <div class="step" id="stepOpp2" style="display:none"><label>第二位对手类型</label>
+        <div class="step" id="stepOpp2" style="display:none"><label id="vsType2Label">第二位对手类型</label>
           <select id="treeVsType2"><option value="*">任意</option>
             <option>标准</option><option>紧凶</option><option>松凶</option><option>岩石</option>
             <option>受气包</option><option>跟注站</option><option>娱乐玩家</option>
             <option>过度诈唬型</option><option>下注不足型</option></select></div>
-        <div class="step"><label>对手类型</label>
+        <div class="step"><label id="vsTypeLabel">对手类型</label>
           <select id="treeVsType"><option value="*">任意</option>
             <option>标准</option><option>紧凶</option><option>松凶</option><option>岩石</option>
             <option>受气包</option><option>跟注站</option><option>娱乐玩家</option>
@@ -154,6 +158,11 @@
         改任何一个条件都会自动重查。
       </div>
 
+      <div id="rangeView" class="range-view">
+        <span class="rv-label">范围视角</span>
+        <button data-rv="hero" class="on">我</button>
+        <button data-rv="opponent">对手</button>
+      </div>
       <div id="treeGrid" class="treegrid"></div>
       <div id="treeDetail" class="legend" style="min-height:22px;margin-top:8px"></div>
     </div>

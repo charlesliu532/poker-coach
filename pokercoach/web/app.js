@@ -54,6 +54,7 @@ const Spot = (() => {
     street: "翻牌",
     board: [],
     seq: [],          // 翻前序列 [{pos, act, kind, pct}]
+    hero: null,       // 手动钉住的「我」；null = 跟序列最后一个行动的人
     version: 0,
   };
 
@@ -76,6 +77,7 @@ const Spot = (() => {
     const players = [...new Set(seq.map((x) => x.pos))];
     const last = alive.length ? alive[alive.length - 1] : null;
     const opener = seq.find((x) => x.act === "开池") || null;
+    const lastRaiser = raisers.length ? raisers[raisers.length - 1] : null;
 
     // 底池类型只能由加注轮次推导，绝不允许外部单存
     const n = raisers.length;
@@ -84,15 +86,26 @@ const Spot = (() => {
     else if (n === 2) pot = "3BP";
     if (alivePos.length >= 3) pot = n >= 2 ? "3BP多人" : "3人池";
 
-    const hero = last ? last.pos
+    // 「我」默认是序列最后一个行动的人，但允许手动钉住（S.hero）。
+    // 否则 BTN 开池、BB 跟注之后，想看 BTN 的 c-bet 会被强行切成 BB。
+    const autoHero = last ? last.pos
       : (positions().includes("BTN") ? "BTN" : positions()[0]);
-    const villain = (opener && opener.pos !== hero) ? opener.pos
-      : (alivePos.find((p) => p !== hero) || players.find((p) => p !== hero) || "BB");
-    const iRaisedLast = last ? RAISE_ACTS.includes(last.act) : true;
+    const hero = (S.hero && alivePos.includes(S.hero)) ? S.hero : autoHero;
+
+    // 对手优先取「最后一个加注的人」，其次开池者，最后随便一个还在局里的。
+    // 这样 3bet 底池里，跟注方看到的对手就是 3bet 方，不会拿开池方凑数。
+    const want = [lastRaiser && lastRaiser.pos, opener && opener.pos,
+                  ...alivePos, ...players];
+    const villain = want.find((p) => p && p !== hero) || "BB";
+    // PFR 是哪一边，由「最后一个加注的人是不是我」决定，不是由最后一个动作决定：
+    // BTN 开池、BB 跟注，最后一个动作是跟注，但 PFR 仍然是 BTN。
+    const pfrSide = lastRaiser ? (lastRaiser.pos === hero ? "hero" : "villain") : "hero";
 
     return {
       hero, villain, pot,
-      opener: iRaisedLast ? "hero" : "villain",
+      opener: pfrSide,
+      heroPinned: !!(S.hero && alivePos.includes(S.hero)),
+      lastRaiser: lastRaiser ? lastRaiser.pos : "",
       involved: alivePos.length ? alivePos : [hero, villain],
       villain2: alivePos.length >= 3 ? alivePos.filter((p) => p !== hero && p !== villain)[0] || "*" : "*",
       raises: n, players: alivePos.length,
@@ -110,6 +123,8 @@ const Spot = (() => {
   // ── 把推导结果写回隐藏字段（兼容老接口）──────────────
   function apply() {
     const d = derive();
+    // 钉住的「我」已经不在局里（被弃牌/换桌型）→ 放掉，回到默认
+    if (S.hero && !d.empty && !d.involved.includes(S.hero)) S.hero = null;
     const set = (id, v) => { const e = document.getElementById(id); if (e) e.value = v; };
     set("treeHero", d.hero);
     set("treeVillain", d.villain);
@@ -123,6 +138,18 @@ const Spot = (() => {
     if (pe) pe.textContent = d.empty
       ? "还没定动作，从下方添加第一步"
       : `${d.pot} · 我 ${d.hero} vs ${d.villain}` + (d.players >= 3 ? `（${d.players} 人池）` : "");
+    // 「我在」下拉：只列还在局里的位置；没有序列就列整桌
+    const me = document.getElementById("treeMe");
+    if (me) {
+      const list = d.involved.length ? d.involved : positions();
+      const ordered = positions().filter((p) => list.includes(p));
+      me.innerHTML = ordered.map((p) =>
+        `<option value="${p}"${p === d.hero ? " selected" : ""}>${p}</option>`).join("");
+    }
+    const vl = document.getElementById("vsTypeLabel");
+    if (vl) vl.textContent = d.villain ? `对手（${d.villain}）类型` : "对手类型";
+    const vl2 = document.getElementById("vsType2Label");
+    if (vl2) vl2.textContent = (d.villain2 && d.villain2 !== "*") ? `对手2（${d.villain2}）类型` : "第二位对手类型";
     const s2 = document.getElementById("stepOpp2");
     if (s2) s2.style.display = (d.pot === "3人池" || d.pot === "3BP多人") ? "" : "none";
     return d;
@@ -150,7 +177,9 @@ const Spot = (() => {
   return {
     get state() { return S; },
     positions, derive, apply, bump, line,
-    setTableType(v) { return bump((s) => { s.tableType = v; }); },
+    setTableType(v) { return bump((s) => { s.tableType = v; s.hero = null; }); },
+    setHero(v) { return bump((s) => { s.hero = (v && v !== "*") ? v : null; }); },
+    clearHero() { return bump((s) => { s.hero = null; }); },
     setStacks(h, v) { return bump((s) => { s.heroStack = h; s.villainStack = v; }); },
     setVsType(t, t2) { return bump((s) => { s.vsType = t; s.vsType2 = t2; }); },
     setStreet(v) { return bump((s) => { s.street = v; }); },
@@ -2719,8 +2748,22 @@ function bindSpotInputs() {
   on("treeHeroStack", () => Spot.setStacks(val("treeHeroStack"), val("treeVillainStack")));
   on("treeVillainStack", () => Spot.setStacks(val("treeHeroStack"), val("treeVillainStack")));
   on("treeVsType", () => Spot.setVsType(val("treeVsType"), val("treeVsType2")));
-  on("treeVsType2", () => Spot.setVsType(val("treeVsType"), val("treeVsType2")));
+  on("treeVsType2", () => { Spot.setVsType(val("treeVsType"), val("treeVsType2")); loadTree(); });
   on("treeStreet", () => Spot.setStreet(val("treeStreet")));
+  // 手动指定「我」：只影响视角/角色，不改序列本身
+  on("treeMe", () => {
+    Spot.setHero(val("treeMe"));
+    try {
+      const d = Spot.derive();
+      const role = roleFrom(d.hero, d.villain, d.opener, d.pot);
+      const oop = role.startsWith("OOP") || role === "BvB-BB";
+      const act = document.getElementById("treeAction");
+      if (act && (act.value === "无" || act.value === "对手过牌")) {
+        act.value = oop ? "无" : "对手过牌";
+      }
+    } catch (e) {}
+    loadTree();
+  });
 }
 
 function pfNextCandidates() {
@@ -3591,6 +3634,26 @@ function initPreflopUI() {
   syncPositionsToTable();
 }
 
+let rangeView = "hero";   // 范围视角：hero / opponent
+
+function setRangeViewUI(who) {
+  const box = document.getElementById("rangeView");
+  if (!box) return;
+  box.querySelectorAll("[data-rv]").forEach((b) => {
+    b.classList.toggle("on", b.dataset.rv === who);
+  });
+}
+
+function bindRangeView() {
+  const box = document.getElementById("rangeView");
+  if (!box || box.dataset.bound) return;
+  box.dataset.bound = "1";
+  box.querySelectorAll("[data-rv]").forEach((b) => {
+    b.onclick = () => switchRangeTo(b.dataset.rv);
+  });
+  setRangeViewUI(rangeView);
+}
+
 function switchRangeTo(who) {
   const box = document.getElementById("treeGrid");
   const meta = document.getElementById("treeMeta");
@@ -3598,9 +3661,13 @@ function switchRangeTo(who) {
   const freq = window.__opponentFreq;
   if (!box) return;
   if (who !== "opponent") {
+    rangeView = "hero";
+    setRangeViewUI("hero");
     if (typeof loadTree === "function") loadTree();
     return;
   }
+  rangeView = "opponent";
+  setRangeViewUI("opponent");
   const st = window.__treeState || {};
   const pos = st.villain || "对手";
   if (!vr) return;
@@ -3993,6 +4060,7 @@ async function loadTree() {
   if (!window.__ctaInit) { window.__ctaInit = 1; try { bindMainCta(); } catch (e) {} }
   if (!window.__lockInit) { window.__lockInit = 1; try { refreshLocks(); } catch (e) {} }
   if (!window.__pfInited) { window.__pfInited = 1; try { initPreflopUI(); } catch (e) { console.warn("pf:", e); } }
+  if (!window.__rvInit) { window.__rvInit = 1; try { bindRangeView(); } catch (e) {} }
   syncTableType();
   // 翻前没有公共牌：隐藏「强抓折算」和「牌面写法」两段提示；翻后恢复
   {
@@ -4063,21 +4131,26 @@ async function loadTree() {
   // 翻前 + 已有序列：下面要显示「序列最后一步是什么」，而不是按位置
   // 去查一条「开池」规则 —— 否则 CO 3bet 之后会显示成 CO 的开池范围。
   if (v.street === "翻前" && typeof Spot !== "undefined" && Spot.line()) {
+    const d0 = Spot.derive();
     const seq = Spot.state.seq.filter((x) => x.act !== "弃牌");
-    const last = seq[seq.length - 1];
+    const RAISE = ["开池", "3bet", "4bet", "5bet 全下"];
+    // 有钉住的「我」时，显示「我」的最后一步；否则跟序列最后一个行动的人
+    const mine = seq.map((x, i) => ({ x, i })).filter((o) => o.x.pos === d0.hero);
+    const pick = (d0.heroPinned && mine.length)
+      ? mine[mine.length - 1]
+      : { x: seq[seq.length - 1], i: seq.length - 1 };
+    const last = pick.x;
     if (last) {
-      const RAISE = ["开池", "3bet", "4bet", "5bet 全下"];
       let kind = "open";
       if (last.act === "3bet") kind = "3bet";
       else if (last.act === "4bet") kind = "4bet";
       else if (last.act === "5bet 全下") kind = "5bet";
       else if (last.act === "跟注") {
-        const nR = seq.filter((x) => RAISE.includes(x.act)).length;
-        kind = nR >= 3 ? "call4bet" : nR >= 2 ? "call3bet" : "call_open";
+        const before = seq.slice(0, pick.i).filter((x) => RAISE.includes(x.act)).length;
+        kind = before >= 3 ? "call4bet" : before >= 2 ? "call3bet" : "call_open";
       }
-      const raisers = seq.filter((x) => RAISE.includes(x.act));
-      const prev = raisers.length >= 2 ? raisers[raisers.length - 2] : null;
-      const oppPos = prev ? prev.pos
+      const prevRaise = [...seq.slice(0, pick.i)].reverse().find((x) => RAISE.includes(x.act));
+      const oppPos = prevRaise ? prevRaise.pos
         : ((seq.find((x) => x.pos !== last.pos) || {}).pos || v.villain);
       await pfShowRange(last.pos, kind, oppPos);
       return;
@@ -4327,6 +4400,10 @@ async function loadTree() {
           <span style="opacity:.75">｜每格按动作占比左右分割，格内数字＝占比最大的动作</span>
           <span style="opacity:.75">｜${passTip}｜点格子看完整混合与诈唬排序</span>`;
       })();
+    // 如果当前停在「对手」视角，重绘后继续保持
+    if (rangeView === "opponent" && window.__villainRange) {
+      try { switchRangeTo("opponent"); } catch (e) {}
+    }
     // 深链：URL 带 ?combo=A5s 时自动点开那手牌（要放在图例之后，否则会被覆盖）
     try {
       const wantCombo = new URLSearchParams(location.search).get("combo");

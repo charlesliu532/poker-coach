@@ -2022,7 +2022,12 @@ def preflop_freq_matrix(pos: str, opp: str, kind: str = "open", vs_type: str = "
         h, a = c["combo"], c["act"]
         if a == "raise":
             if h in weak_raise:
-                cells.append({"combo": h, "act": "raise", "raise": 70, "call": 30, "fold": 0})
+                # 开池没有「跟注」这个选项：边缘牌是 70% 开 / 30% 弃，
+                # 不能写成 70% 开 / 30% 跟（那会在开池节点画出一片平跟）。
+                if kind == "open":
+                    cells.append({"combo": h, "act": "raise", "raise": 70, "call": 0, "fold": 30})
+                else:
+                    cells.append({"combo": h, "act": "raise", "raise": 70, "call": 30, "fold": 0})
             else:
                 cells.append({"combo": h, "act": "raise", "raise": 100, "call": 0, "fold": 0})
         elif a == "call":
