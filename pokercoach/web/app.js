@@ -2048,13 +2048,19 @@ function cardHTML(c) {
 }
 
 function seatPos(i, n) {
-  // 座位固定在椭圆边缘、避开中间的牌区
+  // 座位沿椭圆均匀分布：英雄固定在最下方，其余顺时针排开。
+  // 之前只定义了 2/3 人布局，6 人桌全退回同一个点 → 座位重叠。
   const LAYOUT = {
-    2: [[50, 88], [50, 12]],                      // 我在下、对手在上
-    3: [[50, 88], [10, 14], [90, 14]],            // 我在下、两个对手在上两角
+    2: [[50, 90], [50, 10]],
+    3: [[50, 90], [16, 16], [84, 16]],
+    4: [[50, 90], [10, 50], [50, 10], [90, 50]],
+    5: [[50, 90], [8, 58], [28, 12], [72, 12], [92, 58]],
+    6: [[50, 90], [6, 60], [20, 14], [50, 6], [80, 14], [94, 60]],
+    7: [[50, 90], [6, 62], [16, 20], [42, 8], [68, 8], [88, 22], [94, 62]],
+    8: [[50, 90], [6, 62], [16, 20], [42, 8], [58, 8], [84, 20], [94, 62], [50, 96]],
   };
   const pts = LAYOUT[n] || LAYOUT[2];
-  const [x, y] = pts[i] || pts[0];
+  const [x, y] = pts[i] || pts[pts.length - 1];
   return { left: `${x}%`, top: `${y}%` };
 }
 
@@ -2063,32 +2069,64 @@ function renderPokerTable(v, ruleInfo) {
   if (!box) return;
   // 这张桌子上有几个人：6 人桌默认按标准位置摆，3 人池只摆 3 个
   const multi = v.pot === "3人池" ? 3 : (v.pot === "多人池" || v.pot === "3BP多人") ? 3 : 2;
-  const heroIdx = 0, villainIdx = 1;
+  // 桌上该画几个座位：跟桌型一致（6-max 画 6 个，8-max 画 8 个），没参与的人灰掉
+  const tableType = (document.getElementById("treeTableType") || {}).value || "6-max";
+  const seatCount = tableType.startsWith("8") ? 8 : 6;
+  // 双方筹码：优先各自的，其次全局的
+  const globalStack = ($("#treeHeroStack") && $("#treeHeroStack").value) || v.stack;
+  const vStackSel = ($("#treeVillainStack") && $("#treeVillainStack").value) || "*";
   const stackOf = (who) => {
-    if (who === "hero") return v.heroStack && v.heroStack !== "*" ? v.heroStack : (v.stack !== "*" ? v.stack : "—");
-    return v.villainStack && v.villainStack !== "*" ? v.villainStack : (v.stack !== "*" ? v.stack : "—");
+    if (who === "hero") {
+      if (v.heroStack && v.heroStack !== "*") return v.heroStack;
+      return (globalStack && globalStack !== "*") ? globalStack : "—";
+    }
+    // 对手：选了「同我」就跟着我方深度走
+    if (vStackSel && vStackSel !== "*") return vStackSel;
+    if (v.villainStack && v.villainStack !== "*") return v.villainStack;
+    return (globalStack && globalStack !== "*") ? globalStack : "—";
   };
-  const seats = [
-    { pos: v.hero, stk: stackOf("hero"), hero: true, cls: "" },
-    { pos: v.villain, stk: stackOf("villain"), hero: false, cls: "" },
-  ];
-  if (multi >= 3 && v.villain2 && v.villain2 !== "*") {
-    seats.push({ pos: v.villain2, stk: "—", hero: false, cls: "" });
-  }
-  const n = Math.max(seats.length, 2);
+  // 全员座位（按桌型），参与的高亮、没参与的灰掉
+  const LIST6 = ["UTG","HJ","CO","BTN","SB","BB"];
+  const LIST8 = ["UTG","UTG1","UTG2","HJ","CO","BTN","SB","BB"];
+  const allPos = tableType.startsWith("8") ? LIST8 : LIST6;
+  const involved = new Set([v.hero, v.villain]);
+  if (multi >= 3 && v.villain2 && v.villain2 !== "*") involved.add(v.villain2);
+  // 座位顺序要让「我」落在最下方：按位置顺序从 hero 开始环排
+  const hi = Math.max(0, allPos.indexOf(v.hero));
+  const rotated = allPos.slice(hi).concat(allPos.slice(0, hi));
+  const seats = rotated.map((pos) => ({
+    pos,
+    stk: pos === v.hero ? stackOf("hero") : (involved.has(pos) ? stackOf("villain") : "—"),
+    hero: pos === v.hero,
+    inactive: !involved.has(pos),
+  }));
+  const n = seats.length;
   const cards = v.street === "翻前" ? [] : parseCards(v.board);
   const needed = { 翻牌: 3, 转牌: 4, 河牌: 5 }[v.street] || 0;
   const shown = [];
-  for (let i = 0; i < 5; i++) shown.push(i < needed ? cards[i] : null);
+  if (needed > 0) {                       // 翻前完全不画牌位
+    for (let i = 0; i < needed; i++) shown.push(cards[i] || null);
+  }
 
   const seatHTML = seats.map((s, i) => {
     const p = seatPos(i, n);
-    return `<div class="pseat ${s.hero ? "hero" : ""}" style="left:${p.left};top:${p.top};transform:translate(-50%,-50%)">
-      <div class="pos">${esc(POS_CN[s.pos] || s.pos || "?")}${s.hero ? " ●" : ""}</div>
-      <div class="stk">${esc(String(s.stk))}</div>
+    const locked = (window.__locks || []).some((c) => c.pos === s.pos);
+    const cls = [s.hero ? "hero" : "", locked ? "locked" : "", s.inactive ? "inactive" : ""].filter(Boolean).join(" ");
+    return `<div class="pseat ${cls}" data-lockpos="${esc(s.pos || "")}"
+        style="left:${p.left};top:${p.top};transform:translate(-50%,-50%)" title="点击派生新版本">
+      <div class="pos">${esc(POS_CN[s.pos] || s.pos || "?")}${s.hero ? " ●我" : ""}${locked ? " ⚖" : ""}</div>
+      <div class="stk">${esc(String(s.inactive ? "" : s.stk))}</div>
     </div>`;
   }).join("");
 
+  // 座位点击用事件委托（座位 DOM 是稍后才插入的）
+  if (box && !box.dataset.lockBound) {
+    box.dataset.lockBound = "1";
+    box.addEventListener("click", (ev) => {
+      const seat = ev.target.closest("[data-lockpos]");
+      if (seat && seat.dataset.lockpos) openLockEditor(seat.dataset.lockpos);
+    });
+  }
   // 底池：按「开池 2.5bb + 跟注」估算，展示用
   const potTxt = v.street === "翻前" ? "" : (v.pot === "3BP" ? "~20bb" : v.pot === "4BP" ? "~50bb" : v.pot === "3人池" ? "~9bb" : "~6.5bb");
   const acts = (window.__nodeActions || []);
@@ -2389,6 +2427,480 @@ function flowInfoHtml() {
   </div>`;
 }
 
+// ── 翻前分步流程：开池 → 3bet → (4bet/跟注) → (5bet/跟注) ──────
+let pfStep = 0;          // 0=开池方 1=3bet方 2=4bet方 3=5bet方
+let pfLog = [];          // [{pos, act, pct}]
+
+async function pfShowRange(pos, kind) {
+  try {
+    const d = await fetch(`/api/preflop/range?pos=${encodeURIComponent(pos)}&opp=${encodeURIComponent((window.__treeState||{}).villain||"BB")}&kind=${kind}&freq=1&vs_type=${encodeURIComponent((document.getElementById("treeVsType")||{}).value||"*")}`).then(x=>x.json());
+    if (!d.ok) return null;
+    const box = document.getElementById("treeGrid");
+    const meta = document.getElementById("treeMeta");
+    if (box) {
+      box.className = "treegrid";
+      box.innerHTML = "";
+      d.cells.forEach((c) => {
+        const el = document.createElement("div");
+        el.className = "treecell";
+        const r = c.raise || 0, ca = c.call || 0, fo = c.fold || 0;
+        if (r + ca <= 0) {
+          el.style.background = "#131313"; el.style.color = "#454545"; el.style.opacity = "0.55";
+          el.innerHTML = `<span class="cb">${c.combo}</span><span class="pct">弃</span>`;
+        } else {
+          // 加注(红) → 跟注(蓝) → 弃牌(灰) 横向渐变，一眼看出混合比例
+          el.style.background = `linear-gradient(to right, #c0392b 0% ${r}%, #2f6fb5 ${r}% ${r + ca}%, #2a2f36 ${r + ca}% 100%)`;
+          el.style.color = "#fff";
+          el.style.textShadow = "0 1px 3px rgba(0,0,0,.9)";
+          const main = r >= ca ? r : ca;
+          const tag = r >= ca ? "加" : "跟";
+          el.innerHTML = `<span class="cb">${c.combo}</span><span class="pct">${tag}${main}</span>`;
+          el.title = `${c.combo}｜加注 ${r}% 跟注 ${ca}% 弃牌 ${fo}%`;
+        }
+        box.appendChild(el);
+      });
+      const det = document.getElementById("treeDetail");
+      const nr = d.cells.filter(x=>x.act==="raise").length;
+      const nc = d.cells.filter(x=>x.act==="call").length;
+      if (det) det.innerHTML = `<b style="color:#e06c75">■ 加注 ${nr} 类</b>　`
+        + `<b style="color:#6aa9ff">■ 跟注 ${nc} 类</b>　`
+        + `<b style="color:#6b7280">■ 弃牌 ${169-nr-nc} 类</b>`;
+      box.insertAdjacentHTML("beforebegin", "");
+    }
+    if (meta) meta.innerHTML = `<b style="color:#ffd479">${esc(d.label)}</b> · 总计 ${d.pct}%（${d.cells.filter(c=>c.act!=="fold").length} 类）`;
+    return d;
+  } catch (e) { console.warn("pf range:", e); return null; }
+}
+
+function pfRender() {
+  const box = document.getElementById("playActions");
+  if (!box) return;
+  const me = (document.getElementById("pfMe")||{}).value || "BTN";
+  const opp = (document.getElementById("pfOpp")||{}).value || "BB";
+  const seq = [
+    { who: me,  act: "开池", kind: "open" },
+    { who: opp, act: "3bet", kind: "3bet" },
+  ];
+  if (pfStep >= 2) seq.push({ who: me, act: pfLog[2] ? pfLog[2].act : "4bet", kind: pfLog[2] ? pfLog[2].kind : "4bet" });
+  if (pfStep >= 3) seq.push({ who: opp, act: pfLog[3] ? pfLog[3].act : "5bet", kind: pfLog[3] ? pfLog[3].kind : "5bet" });
+
+  let html = `<div class="pa-row" style="margin-bottom:4px">
+    <span class="pa-who" style="background:#1d2530;color:#8fa3b8">翻前</span>
+    <span class="pa-act">第 ${pfStep + 1} 步 · ${esc(pfStep % 2 === 0 ? me : opp)} 行动</span></div>`;
+  pfLog.slice(0, pfStep + 1).forEach((x) => {
+    html += `<div class="pa-row"><span class="pa-who">${esc(x.pos)}</span>
+      <span class="pa-act">${esc(x.act)}</span>
+      <span style="color:#7ddc9f;font-size:12px">${x.pct}%</span></div>`;
+  });
+
+  const cur = pfStep % 2 === 0 ? me : opp;
+  const opts = pfStep === 0 ? [["开池", "open"]]
+    : pfStep === 1 ? [["3bet", "3bet"], ["跟注", "call_open"], ["弃牌", "fold"]]
+    : pfStep === 2 ? [["4bet", "4bet"], ["跟注", "call3bet"], ["弃牌", "fold"]]
+    : [["5bet 全下", "5bet"], ["跟注", "call4bet"], ["弃牌", "fold"]];
+
+  html += `<div class="pa-row"><span class="pa-who">${esc(cur)}</span>` +
+    opts.map(([label, kind]) => `<button class="pbtn ${kind==="fold"?"muted":kind.includes("5bet")?"danger":"primary"}"
+      data-pf="${kind}" data-pflabel="${esc(label)}">${esc(label)}</button>`).join("") +
+    `<button class="pbtn" data-pf="next">→ 进翻后</button></div>`;
+
+  box.innerHTML = html;
+  box.querySelectorAll("[data-pf]").forEach((b) => {
+    b.onclick = () => pfAct(b.dataset.pf, b.dataset.pflabel);
+  });
+}
+
+async function pfAct(kind, label) {
+  const me = (document.getElementById("pfMe")||{}).value || "BTN";
+  const opp = (document.getElementById("pfOpp")||{}).value || "BB";
+  const cur = pfStep % 2 === 0 ? me : opp;
+  if (kind === "next") { goPostflop(); return; }
+  if (kind === "fold") {
+    document.getElementById("playActions").innerHTML =
+      `<div class="pa-row"><b style="color:#c96">${esc(cur)} 弃牌 · 这手结束</b>
+       <button class="pbtn" onclick="pfReset();pfRender()">重来</button></div>`;
+    return;
+  }
+  const d = await pfShowRange(cur, kind === "call_open" ? "call3bet" : kind);
+  const pct = d ? d.pct : "?";
+  pfLog[pfStep] = { pos: cur, act: label, kind, pct };
+  pfStep += 1;
+  // 5bet 之后就没有更多加注了
+  if (pfStep > 4 || (kind === "5bet")) {
+    document.getElementById("playActions").innerHTML =
+      `<div class="pa-row"><b style="color:#ffd479">${esc(cur)} 5bet 全下 · 翻前结束</b></div>`;
+    return;
+  }
+  pfRender();
+}
+
+function pfReset() { pfStep = 0; pfLog = []; }
+
+// ── 翻前：一条序列，谁做了什么按顺序排 ──────────────────────
+let pfSeq = [];   // [{pos, act, kind, pct}]
+
+function pfPositionsAll() { return posList(); }
+
+function pfNextCandidates() {
+  // 还没行动过的位置（一个位置在翻前只能主动加注一次，但可以再行动）
+  const used = new Set(pfSeq.map((x) => x.pos));
+  const all = pfPositionsAll();
+  const rest = all.filter((p) => !used.has(p));
+  return rest.length ? rest : all;
+}
+
+function pfSeqRender() {
+  const box = document.getElementById("pfSeqBox");
+  if (!box) return;
+  const steps = pfSeq.map((x, i) => {
+    const color = x.act.includes("弃") ? "#6b7280" : x.act.includes("跟") ? "#2f6fb5" : "#c0392b";
+    return `<span class="pf-chip" data-step="${i}" style="border-color:${color}">
+      <b>${esc(x.pos)}</b> ${esc(x.act)}
+      ${x.pct != null ? `<i style="color:#7ddc9f">${x.pct}%</i>` : ""}
+    </span>`;
+  }).join(`<span class="pf-arrow">→</span>`);
+
+  const cands = pfNextCandidates();
+  const acts = pfSeq.length === 0
+    ? ["开池"]
+    : ["3bet", "跟注", "弃牌"];
+  box.innerHTML = (steps || `<div class="pf-empty">还没有动作，从下方添加第一步</div>`)
+    + `<div class="pf-add">
+        <select id="pfNextPos" class="pf-mini">${cands.map((p) => `<option>${p}</option>`).join("")}</select>
+        <select id="pfNextAct" class="pf-mini">${acts.map((a) => `<option>${a}</option>`).join("")}</select>
+        <button class="pbtn primary pf-mini-btn" id="pfAddBtn">+ 添加</button>
+        <button class="pbtn pf-mini-btn" id="pfClearBtn">清空</button>
+      </div>`;
+
+  box.querySelectorAll("[data-step]").forEach((el) => {
+    el.onclick = () => {
+      const x = pfSeq[Number(el.dataset.step)];
+      if (x) pfShowRange(x.pos, x.kind, x.opp);
+    };
+  });
+  const add = document.getElementById("pfAddBtn");
+  if (add) add.onclick = pfAddStep;
+  const clr = document.getElementById("pfClearBtn");
+  if (clr) clr.onclick = () => { pfSeq = []; pfReset(); pfSeqRender(); };
+}
+
+function pfAddStep() {
+  const pos = (document.getElementById("pfNextPos") || {}).value;
+  const act = (document.getElementById("pfNextAct") || {}).value;
+  if (!pos || !act) return;
+  let kind = "open", opp = "";
+  if (act === "开池") kind = "open";
+  else if (act === "3bet") kind = "3bet";
+  else if (act === "4bet") kind = "4bet";
+  else if (act === "5bet" || act === "全下") kind = "5bet";
+  else if (act === "跟注") kind = pfSeq.length >= 3 ? "call4bet" : "call3bet";
+  else kind = "fold";
+  // 开池方 = 序列里第一个「开池」的人
+  const opener = pfSeq.find((x) => x.act === "开池");
+  opp = opener && opener.pos !== pos ? opener.pos : (pfSeq.length ? pfSeq[pfSeq.length-1].pos : "BB");
+  const step = { pos, act, kind, opp, pct: null };
+  pfSeq.push(step);
+  // 同步到树的参数：我 = 最后一个行动的人
+  const me = document.getElementById("treeHero");
+  const vil = document.getElementById("treeVillain");
+  if (me) me.value = pos;
+  if (vil && opp) vil.value = opp;
+  const pot = document.getElementById("treePot");
+  if (pot) {
+    const n3 = pfSeq.filter((x) => x.act === "3bet").length;
+    const n4 = pfSeq.filter((x) => x.act === "4bet").length;
+    pot.value = n4 ? "4BP" : (n3 ? "3BP" : "SRP");
+  }
+  pfShowRange(pos, kind, step.opp).then((d) => {
+    if (d) step.pct = d.pct;
+    pfSeqRender();
+  });
+  pfSeqRender();
+}
+
+async function pfShowRange(pos, kind, oppArg) {
+  try {
+    const opp = oppArg || (document.getElementById("treeVillain") || {}).value || "BB";
+    const d = await fetch(`/api/preflop/range?pos=${encodeURIComponent(pos)}&opp=${encodeURIComponent(opp)}&kind=${kind}&freq=1&vs_type=${encodeURIComponent((document.getElementById("treeVsType")||{}).value||"*")}`).then(x=>x.json());
+    if (!d.ok) return null;
+    const box = document.getElementById("treeGrid");
+    const meta = document.getElementById("treeMeta");
+    if (box) {
+      box.className = "treegrid";
+      box.innerHTML = "";
+      d.cells.forEach((c) => {
+        const el = document.createElement("div");
+        el.className = "treecell";
+        const r = c.raise || 0, ca = c.call || 0, fo = c.fold || 0;
+        if (r + ca <= 0) {
+          el.style.background = "#131313"; el.style.color = "#454545"; el.style.opacity = "0.55";
+          el.innerHTML = `<span class="cb">${c.combo}</span><span class="pct">弃</span>`;
+        } else {
+          el.style.background = `linear-gradient(to right, #c0392b 0% ${r}%, #2f6fb5 ${r}% ${r + ca}%, #2a2f36 ${r + ca}% 100%)`;
+          el.style.color = "#fff"; el.style.textShadow = "0 1px 3px rgba(0,0,0,.9)";
+          el.innerHTML = `<span class="cb">${c.combo}</span><span class="pct">${r>=ca?"加":"跟"}${r>=ca?r:ca}</span>`;
+          el.title = `${c.combo}｜加 ${r}% 跟 ${ca}% 弃 ${fo}%`;
+        }
+        box.appendChild(el);
+      });
+    }
+    if (meta) meta.innerHTML = `<b style="color:#ffd479">${esc(d.label)}</b> · ${d.pct}%`;
+    return d;
+  } catch (e) { console.warn("pf range:", e); return null; }
+}
+
+// ── 保证标签 + 版本对比 + 锁定清单（按求解工作台的「版本与对比」组织）──
+let baselineSnap = null;   // 基线快照，用来做对比
+
+function renderGuarantee(g) {
+  const el = document.getElementById("treeGuarantee");
+  if (!el) return;
+  if (!g) { el.innerHTML = ""; return; }
+  el.innerHTML = `<span class="g-badge" style="background:${g.color}22;color:${g.color};border-color:${g.color}55"
+      title="${esc(g.why || "")}">● ${esc(g.label)}</span>
+    <span class="g-src">${esc(g.source || "")}</span>
+    ${g.split ? `<span class="g-split" title="${esc(g.split)}">${esc(g.split)}</span>` : ""}
+    ${(window.__locks && window.__locks.length) ? `<span class="g-lock">⚖ ${window.__locks.length} 处锁定</span>` : ""}`;
+}
+
+function snapCurrent() {
+  const st = window.__treeState || {};
+  return {
+    rule: (window.__ruleInfo || {}).sizing,
+    freq: (window.__ruleInfo || {}).freq,
+    avg: window.__rangeBetPct,
+    label: (document.getElementById("treeMeta")?.textContent || "").slice(0, 70),
+    acts: (window.__nodeActions || []).map((a) => a.label),
+    cells: (window.__treeCells || []).map((c) => c.bucket),
+  };
+}
+
+function takeBaseline() {
+  baselineSnap = snapCurrent();
+  toast("已把当前设为基线");
+  renderVersionBar();
+}
+
+function compareWithBaseline() {
+  if (!baselineSnap) { toast("先设一个基线"); return; }
+  const now = snapCurrent();
+  const box = document.getElementById("compareBox");
+  if (!box) return;
+  const da = now.avg != null && baselineSnap.avg != null ? (now.avg - baselineSnap.avg) : null;
+  const changed = (a, b) => (a || []).filter((x, i) => x !== (b || [])[i]).length;
+  const nc = changed(now.cells, baselineSnap.cells);
+  let concl = "";
+  if (da != null && Math.abs(da) >= 0.5) {
+    concl = `整体下注率 ${da > 0 ? "+" : ""}${da.toFixed(1)} 个点`;
+  }
+  if (nc) concl += (concl ? "，" : "") + `${nc} 手牌的混合比例变了`;
+  if (now.rule !== baselineSnap.rule) concl += (concl ? "，" : "") + `尺度从 ${baselineSnap.rule} 改成 ${now.rule}`;
+  box.innerHTML = `<div class="cmp-head">对比：基线 → 当前</div>
+    <div class="cmp-row"><span>尺度</span><b>${esc(baselineSnap.rule || "—")}</b> → <b>${esc(now.rule || "—")}</b></div>
+    <div class="cmp-row"><span>范围下注率</span><b>${baselineSnap.avg}%</b> → <b>${now.avg}%</b>
+      <i style="color:${da > 0 ? "#3ba55d" : da < 0 ? "#e06c75" : "#8a929c"}">${da != null ? (da > 0 ? "+" : "") + da.toFixed(1) : ""}</i></div>
+    <div class="cmp-row"><span>手牌变化</span><b>${nc}</b> 处</div>
+    <div class="cmp-concl">${esc(concl || "没有明显变化")}</div>`;
+}
+
+// ── 锁定编辑器：点座位 → 派生新版本（对齐求解工作台的设计）─────
+let lockEditPos = null;
+
+function openLockEditor(pos) {
+  lockEditPos = pos;
+  const old = document.getElementById("lockDrawer");
+  if (old) old.remove();
+  const cur = (window.__locks || []).find((c) => c.pos === pos) || {};
+  const types = ["*", "标准", "紧凶", "松凶", "岩石", "受气包", "跟注站", "娱乐玩家", "过度诈唬型", "下注不足型"];
+  const stacks = ["*", "20bb", "50bb", "100bb", "200bb"];
+  const d = document.createElement("div");
+  d.id = "lockDrawer";
+  d.className = "lock-drawer";
+  d.innerHTML = `
+    <div class="ld-head">
+      <b>派生新版本 · ${esc(POS_CN[pos] || pos)}${esc(pos)}</b>
+      <button class="ld-x" onclick="closeLockEditor()">✕</button>
+    </div>
+    <div class="ld-tabs">
+      <button class="ld-tab on" data-lt="type">对手画像</button>
+      <button class="ld-tab" data-lt="range">范围</button>
+      <button class="ld-tab" data-lt="strat">策略</button>
+    </div>
+    <div class="ld-body">
+      <div class="ld-pane" data-lp="type">
+        <label>对手形象</label>
+        <select id="ldType">${types.map((t) => `<option value="${t}"${(cur.player_type||"*")===t?" selected":""}>${t === "*" ? "不锁定（用默认）" : t}</option>`).join("")}</select>
+        <label>筹码深度</label>
+        <select id="ldStack">${stacks.map((t) => `<option value="${t}"${(cur.stack||"*")===t?" selected":""}>${t === "*" ? "不锁定（同全局）" : t}</option>`).join("")}</select>
+        <div class="ld-note">选了形象后，这个位置的翻前范围会按该形象调整。</div>
+      </div>
+      <div class="ld-pane hidden" data-lp="range">
+        <label>自定义范围（13×13 上选，或直接写文本）</label>
+        <textarea id="ldRange" rows="4" placeholder="如：QQ+, AKs, AKo, A5s">${esc(cur.payload || "")}</textarea>
+        <div class="ld-note">留空 = 不锁定范围，用该位置的默认范围。</div>
+      </div>
+      <div class="ld-pane hidden" data-lp="strat">
+        <label>策略锁定（高级）</label>
+        <div class="ld-note">把该节点某个动作固定成指定频率。当前版本先开放「强制动作」。</div>
+        <select id="ldForce">
+          <option value="">不锁定</option>
+          <option value="bet">强制下注</option>
+          <option value="check">强制过牌</option>
+          <option value="fold">强制弃牌</option>
+        </select>
+      </div>
+    </div>
+    <div class="ld-foot">
+      <span id="ldCost">将创建 v${(window.__locks||[]).length ? "2" : "2"}（从 v1 派生）· 本机即时生效</span>
+      <button class="pbtn primary" id="ldApply">应用</button>
+      <button class="pbtn muted" id="ldRemove">移除这条锁定</button>
+    </div>`;
+  document.body.appendChild(d);
+  d.querySelectorAll(".ld-tab").forEach((b) => {
+    b.onclick = () => {
+      d.querySelectorAll(".ld-tab").forEach((x) => x.classList.remove("on"));
+      b.classList.add("on");
+      d.querySelectorAll(".ld-pane").forEach((p) => p.classList.toggle("hidden", p.dataset.lp !== b.dataset.lt));
+    };
+  });
+  document.getElementById("ldApply").onclick = async () => {
+    const type = document.getElementById("ldType").value;
+    const stack = document.getElementById("ldStack").value;
+    const range = (document.getElementById("ldRange").value || "").trim();
+    await setLock({ pos, ctype: "range", payload: range, player_type: type, stack,
+                    note: [type !== "*" ? type : "", range ? "自定义范围" : ""].filter(Boolean).join(" · ") });
+    closeLockEditor();
+  };
+  document.getElementById("ldRemove").onclick = async () => {
+    await setLock({ action: "remove", pos });
+    closeLockEditor();
+  };
+}
+
+function closeLockEditor() {
+  const d = document.getElementById("lockDrawer");
+  if (d) d.remove();
+  lockEditPos = null;
+}
+
+async function refreshLocks() {
+  try {
+    const d = await fetch("/api/locks").then((x) => x.json());
+    window.__locks = d.constraints || [];
+    const box = document.getElementById("lockList");
+    if (box) {
+      box.innerHTML = window.__locks.length
+        ? `<div class="lk-head">锁定清单 <button class="mini-btn" onclick="clearAllLocks()">全部移除</button></div>`
+          + window.__locks.map((c) => `<div class="lk-item"><b>${esc(c.pos)}</b>
+              ${c.player_type && c.player_type !== "*" ? `<span>${esc(c.player_type)}</span>` : ""}
+              ${c.stack && c.stack !== "*" ? `<span>${esc(c.stack)}</span>` : ""}
+              <button class="mini-btn" data-unlock="${esc(c.pos)}">移除</button></div>`).join("")
+        : `<div class="lk-empty">没有锁定</div>`;
+      box.querySelectorAll("[data-unlock]").forEach((b) => {
+        b.onclick = () => setLock({ action: "remove", pos: b.dataset.unlock });
+      });
+    }
+    renderVersionBar();
+  } catch (e) { console.warn("locks:", e); }
+}
+
+async function setLock(body) {
+  try {
+    await fetch("/api/locks", { method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(body) }).then((x) => x.json());
+    await refreshLocks();
+    if (typeof loadTree === "function") loadTree();
+  } catch (e) { console.warn("setLock:", e); }
+}
+
+async function clearAllLocks() {
+  await fetch("/api/locks", { method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ action: "clear" }) }).then((x) => x.json());
+  await refreshLocks();
+  if (typeof loadTree === "function") loadTree();
+}
+
+function bindMainCta() {
+  const btn = document.getElementById("mainCta");
+  const hint = document.getElementById("ctaHint");
+  if (!btn) return;
+  const sync = () => {
+    const pre = ($("#treeStreet") || {}).value === "翻前";
+    btn.textContent = pre ? "打完翻前 · 进翻后" : "分析这个局面";
+    if (hint) hint.textContent = pre
+      ? "带着翻前范围进入翻后，参数自动带过去"
+      : "结果自动刷新；点这里把当前配置设为基线，方便对比";
+  };
+  btn.onclick = () => {
+    const pre = ($("#treeStreet") || {}).value === "翻前";
+    if (pre) { goPostflop(); return; }
+    takeBaseline();
+    toast("已把当前局面设为基线");
+  };
+  const st = document.getElementById("treeStreet");
+  if (st) st.addEventListener("change", sync);
+  sync();
+}
+
+function openDiagnostics() {
+  const d = window.__diagnostics || {};
+  const old = document.getElementById("diagDrawer");
+  if (old) { old.remove(); return; }
+  const box = document.createElement("div");
+  box.id = "diagDrawer";
+  box.className = "diag-drawer";
+  box.innerHTML = `<div class="ld-head"><b>⚙ 诊断（内部信息）</b>
+      <button class="ld-x" onclick="openDiagnostics()">✕</button></div>
+    <div class="diag-body">`
+    + Object.entries(d).map(([k, val]) =>
+        `<div class="diag-row"><span>${esc(k)}</span><b>${esc(String(val == null ? "—" : val))}</b></div>`).join("")
+    + `</div><div class="diag-foot">这些是数据库 ID 和内部状态，出问题时截图给开发者用。</div>`;
+  document.body.appendChild(box);
+}
+
+function renderVersionBar() {
+  const bar = document.getElementById("versionBar");
+  if (!bar) return;
+  const n = (window.__locks || []).length;
+  bar.innerHTML = `<span class="v-label">版本</span>
+    <span class="v-chip ${!n ? "on" : ""}">v1 基线</span>
+    ${n ? `<span class="v-chip on">v2 锁定 ${n}</span>` : ""}
+    <button class="v-btn" onclick="takeBaseline()">设为基线</button>
+    <button class="v-btn" onclick="compareWithBaseline()">对比</button>
+    <span class="spacer"></span>
+    <span class="v-hint">${n ? "当前结果已锁定，注意对比基线" : "纯规则结果"}</span>`;
+}
+
+// ── 混合策略展示：聚合频率 + 边界手牌（不报每手牌精确百分比）──
+function renderMixSummary(d) {
+  const el = document.getElementById("mixSummary");
+  if (!el) return;
+  const m = d.mix_display;
+  const multiOn = (() => { const c = document.getElementById("treeMulti"); return c && c.checked; })();
+  if (!multiOn || !m) { el.innerHTML = ""; return; }
+  const bd = (m.boundary || []).slice(0, 6)
+    .map((x) => `<span class="bd-chip" title="${esc(x.hand)} ${esc(x.cat || "")}｜临界">${esc(x.hand)}</span>`).join("");
+  el.innerHTML = `<div class="mix-head">混合策略（${(d.strategy_mode || {}).n_sizing || "?"} 个尺度）</div>
+    <div class="mix-row"><span>整体下注频率</span><b class="mix-agg">${m.aggregate_freq}%</b>
+      <span class="mix-note">这是真数据</span></div>
+    <div class="mix-row"><span>可动作手牌</span><b>${m.acted_count} 类</b></div>
+    <div class="mix-row" style="align-items:flex-start"><span>边界手牌</span>
+      <div class="bd-list">${bd || "无"}<div class="bd-tip">这些牌「可打可过」，记住边界比背百分比有用</div></div></div>
+    <div class="mix-warn">⚠ ${esc(m.note || "")}</div>`;
+}
+
+function goPostflop() {
+  // 带着翻前的范围/位置/底池进入翻后
+  const st = document.getElementById("treeStreet");
+  if (st) st.value = "翻牌";
+  syncTableType();
+  derivePreflopUI();
+  const bh = document.getElementById("boardHint");
+  if (bh) bh.style.display = "";
+  playReset();
+  if (typeof loadTree === "function") loadTree();
+}
+
 function renderActions() {
   const box = document.getElementById("playActions");
   if (!box) return;
@@ -2408,6 +2920,10 @@ function renderActions() {
 
   if (!game) gameInit();
   const info = flowInfoHtml();
+  if ((window.__treeState || {}).street === "翻前") {
+    pfSeqRender();
+    return;
+  }
   if (playPhase === 0) {
     box.innerHTML = info + `<div class="pa-row"><span class="pa-who me">我</span>` +
       heroActs.map((a) => `<button class="pbtn ${a.kind === "allin" ? "danger" : a.kind === "check" ? "" : a.kind === "fold" ? "muted" : "primary"}"
@@ -2457,7 +2973,17 @@ function showVillain(mode) {
 
 // ── 翻前剧情 → 自动推导「我是谁 / 对手是谁 / 底池类型」────────────
 const POS6 = ["UTG", "HJ", "CO", "BTN", "SB", "BB"];
-const POS8 = ["UTG", "UTG1", "HJ", "CO", "BTN", "SB", "BB"];
+const POS8 = ["UTG", "UTG1", "UTG2", "HJ", "CO", "BTN", "SB", "BB"];
+
+function syncPositionsToTable() {
+  const list = posList();
+  const fix = (id) => {
+    const e = document.getElementById(id);
+    if (!e) return;
+    if (!list.includes(e.value)) e.value = list.includes("BTN") ? "BTN" : list[0];
+  };
+  fix("treeHero"); fix("treeVillain"); fix("pfMe"); fix("pfOpp");
+}
 
 function posList() {
   const sel = document.getElementById("treeTableType");
@@ -2643,23 +3169,15 @@ function derivePreflop() {
 function initPreflopUI() {
   fillPfSelects();
   fillPfLines();
-  for (const id of ["pfMe","pfOpp","pfLine"]) {
-    const el=document.getElementById(id);
-    if (el) el.addEventListener("change", ()=>{ if(id==="pfOpp") fillPfLines(); derivePreflopUI(); loadTree(); });
-  }
-  derivePreflopUI();
-  return;
-  const op = document.getElementById("pfOpener");
-  const cl = document.getElementById("pfCaller");
-  if (op && !op.dataset.touched) op.value = "BTN";
-  if (cl && !cl.dataset.touched) cl.value = "BB";
-  derivePreflop();
-  for (const id of ["pfOpener", "pfCaller", "pfThreeBet", "pfMeIsOpener",
-                    "pfFourBet", "pfFiveBet", "pfExtraCaller", "treeVsType", "treeVsType2", "treeStreet", "treeTableType", "treeHeroStack", "treeVillainStack"]) {
+  for (const id of ["pfMe","pfOpp","pfLine","treeVsType","treeVsType2","treeHeroStack","treeVillainStack"]) {
     const el = document.getElementById(id);
-    if (el) el.addEventListener("change", () => { el.dataset.touched = "1"; derivePreflop(); loadTree(); });
+    if (el) el.addEventListener("change", () => {
+      if (id === "pfOpp") fillPfLines();
+      derivePreflopUI();
+      loadTree();
+    });
   }
-  // 桌型切换 → 默认筹码跟着变
+  // 桌型切换 → 位置列表 + 默认筹码 + 重新查
   const tt = document.getElementById("treeTableType");
   if (tt) tt.addEventListener("change", () => {
     const hs = document.getElementById("treeHeroStack");
@@ -2667,9 +3185,15 @@ function initPreflopUI() {
     fillPfSelects();
     fillPfLines();
     derivePreflopUI();
+    syncPositionsToTable();
     loadTree();
   });
+  const st = document.getElementById("treeStreet");
+  if (st) st.addEventListener("change", () => loadTree());
+  derivePreflopUI();
+  syncPositionsToTable();
 }
+
 function switchRangeTo(who) {
   const box = document.getElementById("treeGrid");
   const meta = document.getElementById("treeMeta");
@@ -3068,11 +3592,24 @@ function syncThirdPlayer() {
 
 async function loadTree() {
   if (!bpCards.length) bpInit($("#treeBoard").value || "As7h2c");
+  if (!window.__ctaInit) { window.__ctaInit = 1; try { bindMainCta(); } catch (e) {} }
+  if (!window.__lockInit) { window.__lockInit = 1; try { refreshLocks(); } catch (e) {} }
   if (!window.__pfInited) { window.__pfInited = 1; try { initPreflopUI(); } catch (e) { console.warn("pf:", e); } }
   syncTableType();
+  // 翻前没有公共牌：隐藏「强抓折算」和「牌面写法」两段提示；翻后恢复
+  {
+    const isPre = ($("#treeStreet") || {}).value === "翻前";
+    const bh = document.getElementById("boardHint");
+    if (bh) bh.style.display = isPre ? "none" : "";
+    const tip = document.getElementById("treeStraddleTip");
+    if (tip && isPre) tip.style.display = "none";
+  }
   syncThirdPlayer();
   syncDonkOption();
   if (!treeSelfCheck()) return;
+  const _isPre = $("#treeStreet").value === "翻前";
+  const _roleField = $("#treeRole");
+  const _potField = $("#treePot");
   const v = {
     heroStack: ($("#treeHeroStack") && $("#treeHeroStack").value) || "*",
     villainStack: ($("#treeVillainStack") && $("#treeVillainStack").value) || "*",
@@ -3081,10 +3618,14 @@ async function loadTree() {
     villain: $("#treeVillain").value,
     villain2: ($("#treeVillain2") && $("#treeVillain2").value) || "*",
     opener: $("#treeOpener").value,
-    pot: $("#treePot").value,
+    pot: _isPre ? "翻前" : (_potField ? _potField.value : "SRP"),
+    role: _isPre ? "*" : ((_roleField && _roleField.value) || roleFrom($("#treeHero").value, $("#treeVillain").value, ($("#treeOpener")||{}).value, (_potField||{}).value)),
     board: ($("#treeBoard").value || "").trim() || "A72r",
     street: $("#treeStreet").value,
-    action: $("#treeAction").value,
+    // 翻前节点没有「对手过牌」，动作是「开池」
+    action: ($("#treeStreet").value === "翻前") ? "开池" : $("#treeAction").value,
+    hero_stack: ($("#treeStreet").value === "翻前") ? "*" : (($("#treeHeroStack") && $("#treeHeroStack").value) || "*"),
+    villain_stack: ($("#treeStreet").value === "翻前") ? "*" : (($("#treeVillainStack") && $("#treeVillainStack").value) || "*"),
     runout: ($("#treeRunout") && $("#treeRunout").value) || "*",
     line: ($("#treeLine") && $("#treeLine").value) || "*",
     vs_type: ($("#treeVsType") && $("#treeVsType").value) || "*",
@@ -3151,9 +3692,13 @@ async function loadTree() {
     hero_pos: v.hero, opp_pos: (v.pot === "3人池" && v.villain2 && v.villain2 !== "*") ? (v.villain + "+" + v.villain2) : v.villain, stack: v.stack, villain_stack: (document.getElementById("treeVillainStack")||{}).value || "*", runout: v.runout, line: v.line, vs_type: v.vs_type, capped: v.capped, path: v.path,
     hero_stack: v.heroStack, villain_stack: v.villainStack,
     // 勾上「混合策略」= 保留多尺度；不勾 = 简化（默认）
+    multi: (() => {
+      const cb = document.getElementById("treeMulti");
+      return (cb && cb.checked) ? "1" : "0";
+    })(),
     simplify: (() => {
       const cb = document.getElementById("treeMulti");
-      if (cb && cb.checked) return "0";
+      if (cb && cb.checked) return "0";   // 勾了混合 → 不简化
       return "1";
     })(),
     multi: "0",
@@ -3183,15 +3728,35 @@ async function loadTree() {
   window.__opponentFreq = r.opponent_freq || null;
   window.__treeState = v;
     window.__rangeBetPct = r.range_bet_pct;
+  window.__treeCells = r.cells || [];
   window.__ruleInfo = { sizing: rule.sizing, freq: rule.freq, table: r.table.id };
   window.__mixTh = (r.strategy_mode || {}).threshold;
     try { renderPokerTable(v, {}); } catch (e) { console.warn("table:", e); }
+  try { renderGuarantee(r.guarantee); } catch (e) { console.warn("guar:", e); }
+  try { renderMixSummary(r); } catch (e) { console.warn("mix:", e); }
+  try { renderVersionBar(); } catch (e) { console.warn("ver:", e); }
   try { playReset(); renderActions(); } catch (e) { console.warn("actions:", e); }
     const tag = unit === "下注率" ? "下注" : unit === "跟注率" ? "跟注" : unit;
     const warn = (r.table.basis || "").startsWith("反推") ? ` ⚠ ${r.table.basis}` : "";
     const head = rule.street === "翻前" ? "" : `${r.board_class} · `;
     renderNextStreet(rule.street);
-    meta.textContent = `${head}${rule.rule_id} · 尺度 ${rule.sizing} · 频率 ${rule.freq} · 桶表 ${r.table.id}${warn}`;
+    const posCN = { UTG:"枪口", UTG1:"枪口+1", UTG2:"枪口+2", HJ:"高劫持",
+                    CO:"关煞", BTN:"庄位", SB:"小盲", BB:"大盲" };
+    // ── 顶部只留一句人话；内部 ID 进 ⚙ 诊断抽屉 ──
+    const humanParts = [
+      `${posCN[v.hero] || v.hero || ""} vs ${posCN[v.villain] || v.villain || ""}`,
+      v.pot || "",
+      (v.stack && v.stack !== "*") ? v.stack : "",
+      rule.street === "翻前" ? "" : (r.board_class || ""),
+    ].filter(Boolean);
+    meta.textContent = humanParts.join(" · ");
+    window.__diagnostics = {
+      规则: rule.rule_id, 尺度: rule.sizing, 频率: rule.freq, 桶表: r.table.id,
+      模式: (r.strategy_mode || {}).mode, 量化误差: (r.strategy_mode || {}).avg_err,
+      阈值: (r.strategy_mode || {}).threshold,
+      并存: (r.conflicts || []).join("/") || "无",
+      近似: r.approx || "无", 来源: rule.source, 置信: rule.conf,
+    };
     const multiOn = (() => {
       const cb = document.getElementById("treeMulti");
       if (cb && cb.checked) return true;
@@ -3220,16 +3785,15 @@ async function loadTree() {
       meta.textContent += r.hold ? ` · 并存（已裁决）${r.conflicts.join("/")}` : ` · ⚠ 并存 ${r.conflicts.join("/")}`;
     }
 
-    if (rule.street === "翻前" && (r.table_rows || []).length) {
-      box.className = "preflop-list";
-      box.innerHTML = r.table_rows.map((x) => {
-        const col = treeFill(x.bucket);
-        return `<div class="pfrow"><span class="pfh">${esc(x.hand_class)}</span>
-          <span class="pfbar" style="background:${col}"></span>
-          <span class="pfv">${x.bucket}% ${unit}</span></div>`;
-      }).join("");
-      $("#treeDetail").innerHTML = "翻前没有公共牌，所以用表格而不是矩阵。";
-      return;
+    // 翻前也走 13×13 矩阵（下面统一渲染），这里只补一个位置说明
+    if (rule.street === "翻前") {
+      const pos = (v.hero || "*");
+      const opp = (v.villain || "*");
+      const nm = { UTG: "枪口", UTG1: "枪口+1", UTG2: "枪口+2", HJ: "高劫持",
+                   CO: "关煞", BTN: "庄位", SB: "小盲", BB: "大盲" };
+      $("#treeDetail").innerHTML =
+        `<b style="color:#ffd479">${esc(nm[pos] || pos)}${esc(pos)}</b> 的翻前开池范围 ｜`
+        + ` 对手 ${esc(nm[opp] || opp)}${esc(opp)} ｜ 格内数字＝开池频率`;
     }
 
     box.className = "treegrid";

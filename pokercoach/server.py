@@ -191,6 +191,16 @@ class Handler(BaseHTTPRequestHandler):
                 if not q:
                     return self._error("缺少 q")
                 return self._json({"results": self.coach.search(q, k=int(qs.get("k", 8)))})
+            if url.path == "/api/preflop/range":
+                from . import tree as _t
+                fn = _t.preflop_freq_matrix if qs.get("freq") == "1" else _t.preflop_range_matrix
+                return self._json(fn(qs.get("pos", "BTN"), qs.get("opp", "BB"),
+                                     qs.get("kind", "open"), qs.get("vs_type", "*")))
+            if url.path == "/api/locks":
+                from . import locks as _lk
+                ls = _lk.load()
+                return self._json({"constraints": [a.__dict__ for a in ls.constraints],
+                                   "semantics": ls.semantics, "describe": _lk.describe(ls)})
             if url.path == "/api/tree":
                 from . import tree as tree_mod
                 tdir = Path("data/tree")
@@ -207,6 +217,8 @@ class Handler(BaseHTTPRequestHandler):
                         qs.get("hero_stack", "*"), qs.get("villain_stack", "*"),
                         multi=qs.get("multi", "0") in ("1", "true", "yes"),
                         simplify=qs.get("simplify", "0") in ("1", "true", "yes"),
+                        locks=(__import__("pokercoach.locks", fromlist=["load"]).load()
+                               if qs.get("locks", "1") != "0" else None),
                     )
                 except ValueError as e:
                     return self._error(str(e))
@@ -399,6 +411,26 @@ class Handler(BaseHTTPRequestHandler):
         url = urlparse(self.path)
         try:
             data = self._body()
+            if url.path == "/api/locks":
+                from . import locks as _lk
+                ls = _lk.load()
+                act = data.get("action", "set")
+                if act == "clear":
+                    ls.clear()
+                elif act == "remove":
+                    ls.remove(data.get("pos", ""))
+                else:
+                    ls.set(_lk.Constraint(pos=data.get("pos", ""),
+                        ctype=data.get("ctype", "range"),
+                        payload=data.get("payload", ""),
+                        player_type=data.get("player_type", "*"),
+                        stack=data.get("stack", "*"),
+                        note=data.get("note", "")))
+                if data.get("semantics") in _lk.SEMANTICS:
+                    ls.semantics = data["semantics"]
+                _lk.save(ls)
+                return self._json({"ok": True, "describe": _lk.describe(ls),
+                                   "semantics": ls.semantics})
             if url.path == "/api/upload-hh":
                 from .upload import save_and_import
                 from pathlib import Path as _P

@@ -1,12 +1,3 @@
-"""手牌范围（range）解析。
-
-支持写法（大写小写都行，逗号分隔）:
-    AA, KK, AKs, AQo, T9s, 22-55, A5s-A2s, TT+, ATs+, KQo+
-    AKs:0.5      # 带权重
-    AhKh         # 指定花色
-    random       # 任意两张
-"""
-
 from __future__ import annotations
 
 import itertools
@@ -145,8 +136,24 @@ def _expand_dash(lo: _Base, hi: _Base) -> list[tuple[int, int]]:
     return [c for top in range(a, b + 1) for c in _combo(top, top - gap_lo, lo.suited)]
 
 
+def _strip_mix(spec: str) -> str:
+    """把 "A5s:30" 这种混合写法降级成 "A5s"（按主频率处理）。"""
+    import re
+    return re.sub(r":\\d+", "", spec or "")
+
+
+"""手牌范围（range）解析。
+
+支持写法（大写小写都行，逗号分隔）:
+    AA, KK, AKs, AQo, T9s, 22-55, A5s-A2s, TT+, ATs+, KQo+
+    AKs:0.5      # 带权重
+    AhKh         # 指定花色
+    random       # 任意两张
+"""
+
 def parse_range(text: str) -> list[tuple[int, int, float]]:
     """返回 [(c1, c2, weight)]，已去重（同组合取最大权重）。"""
+    text = _strip_mix(text)
     if not text or not text.strip():
         raise RangeError("范围为空")
     text = text.strip()

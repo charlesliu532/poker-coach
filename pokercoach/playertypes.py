@@ -452,3 +452,69 @@ SIZING_ADJUST = {
     "过度诈唬型":  (1.1,  "他诈唬多 → 给他空间，尺度别逼走他的诈唬"),
     "下注不足型":  (1.15, "他不主动下注 → 自己打大一点"),
 }
+
+
+# ══ 4bet 范围（极紧，纯价值 + 少量阻断牌诈唬）═══════════════
+# 结构：价值牌（QQ+/AK）+ 诈唬牌（A5s-A2s，用来阻断对手 AA/AK）
+FOURBET_RANGE = {
+    "标准":   "QQ+, AKs, AKo, A5s, A4s",
+    "紧凶":   "QQ+, AKs, AKo",
+    "松凶":   "TT+, AQs+, AKo, A5s, A4s, KQs",
+    "岩石":   "KK+, AKs",
+    "跟注站": "AA, KK",
+    "娱乐玩家": "AA, KK, AKs",
+    "受气包": "AA, KK",
+    "过度诈唬型": "QQ+, AKs, AKo, A5s, A4s, K9s",
+    "下注不足型": "QQ+, AKs, AKo",
+}
+
+# 我 4bet 之后，对手如果跟注，我的翻后范围就是 4bet 那部分
+# 我面对 3bet 选择跟注时，翻后范围就是 CALL_3BET_RANGE
+
+
+# ══ 跟注 4bet 范围（比 4bet 宽，但也极紧）═══════════════════
+CALL_4BET_RANGE = {
+    "标准":   "TT+, AQs+, AKo, KQs",
+    "紧凶":   "JJ+, AQs+, AKo",
+    "松凶":   "99+, AQs+, AKo, KQs, A5s",
+    "岩石":   "QQ+, AKs, AKo",
+    "跟注站": "99+, AJs+, AQo+",
+    "娱乐玩家": "88+, ATs+, AQo+",
+    "受气包": "QQ+, AKs",
+    "过度诈唬型": "TT+, AQs+, AKo, KQs, A5s, A4s",
+    "下注不足型": "JJ+, AQs+, AKo",
+}
+
+# ══ 5bet 全下范围（几乎只有坚果级）═════════════════════════
+FIVEBET_RANGE = {
+    "标准":   "QQ+, AKs, AKo",
+    "紧凶":   "QQ+, AKs, AKo",
+    "松凶":   "JJ+, AKs, AKo, A5s",
+    "岩石":   "KK+, AA, AKs",
+    "跟注站": "AA, KK",
+    "娱乐玩家": "AA, KK, AKs",
+    "受气包": "AA, KK",
+    "过度诈唬型": "JJ+, AKs, AKo, A5s, A4s",
+    "下注不足型": "QQ+, AKs, AKo",
+}
+
+
+# ══ 3bet 范围按「谁开的池」区分 ═══════════════════════════════
+# 开池位置越靠前，他的范围越强 → 你 3bet 必须越紧。
+THREEBET_VS_OPENER = {
+    # 对手开池位置: (价值范围, 诈唬范围, 参考频率)
+    "UTG":  ("QQ+, AKs, AKo",              "A5s, A4s",          3.0),
+    "UTG1": ("JJ+, AKs, AKo",              "A5s",               4.0),
+    "UTG2": ("TT+, AQs+, AKo",             "A5s",               5.0),
+    "HJ":   ("99+, AJs+, KQs, AQo+",       "A5s, K9s",          6.5),
+    "CO":   ("99+, ATs+, KQs, AJo+",       "A5s, A4s, K9s",     8.0),
+    "BTN":  ("88+, ATs+, KJs+, ATo+",      "A5s, A4s, K9s",     10.0),
+    "SB":   ("88+, ATs+, KQs, AJo+",       "A5s",               9.0),
+    "BB":   ("77+, A9s+, KTs+, QJs, ATo+", "A5s, A4s, K9s",     12.0),
+}
+
+# 3bet 方位置修正：OOP 略收紧，盲位略放宽
+THREEBET_POS_FACTOR = {
+    "UTG": 0.8, "UTG1": 0.85, "UTG2": 0.9, "HJ": 0.95,
+    "CO": 1.0, "BTN": 1.0, "SB": 1.05, "BB": 1.1,
+}

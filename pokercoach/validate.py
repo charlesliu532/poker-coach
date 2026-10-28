@@ -77,7 +77,10 @@ def run(root="data/tree"):
         if not out.get("ok"):
             print(f"  {name:<24}{exp:>6}{'—':>6}{'—':>6}  ⬜ 无规则"); continue
         r=out["rule"]
-        m=statistics.mean([c["bucket"] for c in out["cells"] if c["bucket"] is not None])
+        # 只统计「在这条线范围里」的牌；范围外的空气不该稀释平均值
+        _v=[c["bucket"] for c in out["cells"]
+            if c["bucket"] is not None and not c.get("impossible")]
+        m=statistics.mean(_v) if _v else 0
         lo,hi = exp if isinstance(exp,tuple) else (exp-12,exp+12)
         ok = "✅" if lo-1<=m<=hi+1 else ("⚠ 偏高" if m>hi else "⚠ 偏低")
         if not (lo-1<=m<=hi+1): bad+=1

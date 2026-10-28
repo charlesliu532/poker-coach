@@ -881,7 +881,7 @@ def grid(root: Path, pot: str, role: str, board_text: str, street: str, action: 
          hero_pos: str = "*", opp_pos: str = "*", stack: str = "*",
          runout: str = "*", line: str = "*", vs_type: str = "*", capped: str = "*",
          path: str = "", hero_stack: str = "*", villain_stack: str = "*",
-         multi: bool = False, simplify: bool = False):
+         multi: bool = False, simplify: bool = False, locks=None):
     rules, buckets = _load(root)
     try:
         cards, pat = parse_board(board_text or "A72r")
@@ -898,6 +898,9 @@ def grid(root: Path, pot: str, role: str, board_text: str, street: str, action: 
             return None
     eff_note = ""
     _hs, _vs = _bb(hero_stack), _bb(villain_stack)
+    # 只在明确指定了深度时才用有效筹码逻辑；stack="*" 表示「任意」
+    if str(stack or "*") == "*":
+        _hs = _vs = None
     if _hs and _vs:
         eff = min(_hs, _vs)
         if eff != _hs or eff != _vs:
@@ -964,6 +967,11 @@ def grid(root: Path, pot: str, role: str, board_text: str, street: str, action: 
         mixed = action_mix(bucket, unit, r.get("node_action") or action, r.get("sizing") or "")
         # 不在我方翻后范围里 → 这手牌根本不在他手里，标成「不可能」
         outside = (in_range is not None) and (not _hand_in_range(cid, in_range))
+        if outside:
+            # 不在我方翻后范围里：这手牌根本不存在，频率必须归零，
+            # 不能只打标记（否则界面可能按原频率渲染出「这手牌可以下注」）
+            bucket = 0
+            mixed = []
         folded = outside or (bucket is not None and int(bucket) == 0)
         cells.append({"combo": cid, "cat": cat, "bucket": bucket,
                       "matched": matched or cat, "mix": mixed, "folded": folded,
@@ -1050,10 +1058,17 @@ def grid(root: Path, pot: str, role: str, board_text: str, street: str, action: 
                           opponent_frequencies(root, board_text, street,
                                                opp_pos, hero_pos, vs_type,
                                                in_range=_opp_range_set(opp_pos, hero_pos, pot, role))),
+        # ── 快速修正层（CFR 思想，毫秒级）：用真实牌面算范围优势，微调规则尺度 ──
+        "live": _live_advice(hero_pos, opp_pos, board_text,
+                             r.get("sizing") or "", pot, role),
+        "locked": _locked_advice(locks, hero_pos, opp_pos, board_text,
+                                 r.get("sizing") or "", pot),
         "approx": approx,
         "effective_stack": eff_note,
         "adjust": tend_note,
         "conflicts": [h["rule_id"] for h in hits[1:]] if conflict else [],
+        "guarantee": _guarantee(r, _mode, pot, multi_on=simplify is False),
+        "mix_display": mix_display(cells, r.get("sizing") or ""),
         "hold": False,
         "reason": "",
     }
@@ -1118,6 +1133,60 @@ def build_node_mix(hits: list, buckets: list, hand_class: str, node_action: str,
     else:
         rest = 100.0 - total             # 剩下的 = 过牌/弃牌
 
+    # ── 先收敛：同一节点最多保留 3 个尺度（来源最可靠的），
+    #    否则 9 个来源冲突会把每个都稀释成 2%。这是「抽象」而不是「平均」。──
+    if len(parts) > 3:
+        _RANK = {"课程": 5, "课程+蓝图": 5, "求解": 6, "蓝图": 4,
+                 "Upswing": 4, "Smash": 4, "红线蓝图": 4, "Overbankroll": 4, "推导": 1}
+        parts.sort(key=lambda x: -_RANK.get((x["rule"].get("source") or ""), 0))
+        kept = parts[:3]
+        dropped = sum(p_["pct"] for p_ in parts[3:])
+        # 被砍掉的频率并回剩下的三个，保持总量
+        if dropped > 0 and kept:
+            tw = sum(p_["pct"] for p_ in kept) or 1
+            for p_ in kept:
+                p_["pct"] += dropped * p_["pct"] / tw
+        parts = kept
+
+    # ── EQR 驱动的尺度分配（替代「把多个来源平均」）──
+    # 原则：这手牌能兑现多少权益，决定它该用大尺度还是小尺度。
+    #   EQR 高 → 价值牌 → 偏大注
+    #   EQR 中 → 混合
+    #   EQR 低但有胜率 → 偏小注（诈唬/薄价值）
+    if (not simplified) and len(parts) > 1:
+        try:
+            from .eqr import get as _eqr_get
+            from .preflop import get as _pf_get
+
+            def _size_num(sz):
+                import re as _r
+                m = _r.findall(r"(\d{1,3})\s*%", sz or "")
+                return max((int(x) for x in m), default=50)
+
+            # 这手牌的 EQR（用平均位置与 SPR 6 作为基线）
+            # 优先按「牌面实际牌力」取 EQR（AA 和 KK 在 A72 面差别很大）
+            if hand_cat:
+                from .eqr import from_board_cat as _fbc
+                g = _fbc(hand_cat, True, 6.0)
+            else:
+                g = _eqr_get(hand_class, True, 6.0)
+            eqr = g["eqr"]
+            # 权重：EQR 越高越偏大尺度；low EQR 偏小尺度
+            weights = []
+            for p_ in parts:
+                num = _size_num(p_["sizing"])
+                # 大尺度给高 EQR 加权，小尺度给低 EQR 加权
+                bias = 1.0 + (eqr - 1.0) * (num - 50) / 50.0
+                weights.append(max(0.15, p_["pct"] * bias))
+            tot_w = sum(weights)
+            if tot_w > 0:
+                parts = sorted(
+                    [dict(p_, pct=p_["pct"] * w / tot_w * (sum(x["pct"] for x in parts) / max(1e-6, sum(p_["pct"] for p_ in parts))))
+                     for p_, w in zip(parts, weights)],
+                    key=lambda x: -x["pct"])
+        except Exception:
+            pass
+
     if simplified:
         # 简化：同类型动作合并（两个加注尺度合成一个），频率相加
         merged = {}
@@ -1137,6 +1206,7 @@ def build_node_mix(hits: list, buckets: list, hand_class: str, node_action: str,
                 merged[key] = dict(p)
         parts = list(merged.values())
 
+    _stab_hand = {"hand": hand_class, "cat": hand_cat or ""}
     out = []
     for p in parts:
         out.append({"action": p["action"], "label": p["sizing"],
@@ -1146,4 +1216,373 @@ def build_node_mix(hits: list, buckets: list, hand_class: str, node_action: str,
         out.append({"action": "过牌/弃牌", "label": "过牌", "sizing": "",
                     "pct": round(rest, 1), "kind": "pass"})
     out.sort(key=lambda x: -x["pct"])
+    # ── 扰动测试：这个分配是「有意义的」还是「任意的」──
+    try:
+        from .eqr import perturb_stable
+        bets = [x for x in out if x.get("kind") == "bet"]
+        if len(bets) >= 2:
+            st = perturb_stable([{"label": x["label"], "pct": x["pct"]} for x in bets],
+                                hand_class, hand_cat or "")
+            for x in out:
+                x["_stable"] = st
+    except Exception:
+        pass
     return out
+
+
+# ══ 翻前分步：按「这一步是什么」返回对应范围 ═══════════════════
+def preflop_range_matrix(pos: str, opp: str, kind: str = "open", vs_type: str = "*"):
+    """kind: open / 3bet / 4bet / call3bet
+    返回 169 格矩阵，bucket=100 表示在这套范围里。
+    """
+    from .playertypes import (THREEBET_RANGE, CALL_3BET_RANGE, FOURBET_RANGE,
+                              CALL_4BET_RANGE, FIVEBET_RANGE)
+    from .preflop import get as _get, threebet as _3b
+    from .ranges import parse_range
+    t = vs_type if vs_type not in (None, "", "*", "任意") else "标准"
+    try:
+        if kind == "3bet":
+            # 用课程对位表（谁对谁），不要按开池位置一刀切
+            spec = _3b(pos, opp)
+            label = f"{pos} 3bet {opp} 的范围"
+        elif kind == "4bet":
+            spec = FOURBET_RANGE.get(t)
+            label = f"{pos} 的 4bet 范围"
+        elif kind == "call3bet":
+            spec = CALL_3BET_RANGE.get(t)
+            label = f"{pos} 跟注 3bet 的范围"
+        elif kind == "call4bet":
+            spec = CALL_4BET_RANGE.get(t)
+            label = f"{pos} 跟注 4bet 的范围"
+        elif kind == "5bet":
+            spec = FIVEBET_RANGE.get(t)
+            label = f"{pos} 5bet 全下的范围"
+        else:
+            try:
+                spec = _get(pos, opp)
+            except Exception:
+                spec = None
+            label = f"{pos} 的开池范围"
+        if spec:
+            inr = {(c[0], c[1]) for c in parse_range(spec)}
+        else:
+            # 这个位置不在 preflop 模块里（比如 UTG2）→ 用策略树的桶表
+            inr = None
+    except Exception as e:
+        return {"ok": False, "reason": str(e)}
+
+    cells = []
+    n = 0
+    # 桶表兜底：从数据目录里找这个位置的开池表
+    _tab = None
+    if inr is None:
+        try:
+            _r, _b = _load(Path(__file__).resolve().parent.parent / "data" / "tree")
+            cand = [r for r in _r if r.get("hero_pos") == pos and r.get("node_action") == "开池"
+                    and r.get("status") != "retired"]
+            # 优先用「简单GTO/E8 实测表」，其次 200bb，最后才用 RYE 推导表
+            def _rank(r):
+                tid = r.get("bucket_table") or ""
+                pri = 0
+                if tid.startswith(("EG8_", "EGA_", "E8_")): pri += 10
+                if (r.get("stack") or "") == "200bb": pri += 3
+                if (r.get("source") or "") in ("课程", "求解"): pri += 2
+                return -pri
+            cand.sort(key=_rank)
+            if cand:
+                _tid = cand[0]["bucket_table"]
+                _tab = {b["hand_class"]: int(b["bucket"]) for b in _b
+                        if b["table_id"] == _tid and b["hand_class"] != "其他"}
+        except Exception:
+            _tab = None
+    # 同时算出「加注」和「跟注」两套范围，矩阵才能三色区分
+    def _set(specx):
+        if not specx:
+            return None
+        try:
+            return {(c[0], c[1]) for c in parse_range(specx)}
+        except Exception:
+            return None
+    raise_set = inr
+    call_set = None
+    if kind == "3bet":
+        # raise 用上面按「开池位置」算出来的 inr，不要再用通用的 THREEBET_RANGE
+        call_set = _set(CALL_3BET_RANGE.get(t))
+        raise_set = inr
+    elif kind == "4bet":
+        call_set = _set(CALL_4BET_RANGE.get(t))
+        raise_set = _set(FOURBET_RANGE.get(t))
+    elif kind == "call3bet":
+        call_set, raise_set = inr, None
+    elif kind == "call4bet":
+        call_set, raise_set = inr, None
+
+    for cid, _cc in combos():
+        n_comb = (6 if len(cid) == 2 else (4 if cid.endswith("s") else 12))
+        in_raise = bool(raise_set) and _hand_in_range(cid, raise_set)
+        in_call = bool(call_set) and _hand_in_range(cid, call_set)
+        if _tab is not None and kind == "open":
+            in_raise = _tab.get(cid, 0) > 0
+            in_call = False
+        if in_raise:
+            act, n = "raise", n + n_comb
+        elif in_call:
+            act = "call"
+        else:
+            act = "fold"
+        cells.append({"combo": cid, "cat": cid, "act": act,
+                      "bucket": 100 if act != "fold" else 0,
+                      "matched": cid, "mix": [], "folded": act == "fold",
+                      "impossible": act == "fold"})
+    return {"ok": True, "cells": cells, "label": label,
+            "spec": spec, "pct": round(n / 1326 * 100, 1), "kind": kind}
+
+
+# ══ 保证标签：让用户一眼知道这个数有多可信 ═══════════════════════
+_GUARANTEE = {
+    # (等级, 颜色, 说明)
+    "measured": ("实测", "#3ba55d", "来自课程/求解器实测数据"),
+    "calibrated": ("已校准", "#4a9eff", "TexasSolver 校准过，保留原规则"),
+    "derived": ("推导", "#c9a227", "按原理推导，无实测数据支撑"),
+    "approx": ("近似", "#e07b39", "快速蒙特卡洛估算，精度有限"),
+}
+
+
+def _guarantee(rule, mode, pot, multi_on=False):
+    src = (rule.get("source") or "").strip()
+    note = (rule.get("note") or "")
+    if "简单GTO" in note or "实测" in note or src == "求解":
+        level = "measured"
+    elif "Solver校准" in note or "校准" in note:
+        level = "calibrated"
+    elif src in ("课程", "课程+蓝图", "Upsmare", "Upswing", "Smash", "红线蓝图"):
+        level = "measured"
+    elif src == "推导":
+        level = "derived"
+    else:
+        level = "derived"
+    label, color, why = _GUARANTEE[level]
+    multi = multi_on or (mode or {}).get("mode") == "混合"
+    if multi and level == "derived":
+        why += "（且为多尺度混合）"
+    if pot in ("3人池", "3BP多人", "多人池"):
+        why += " ｜ 多人池：无 Nash 定义，仅作近似参考"
+    # 只要这一屏有任何启发式成分，整体等级就降一档：
+    # 规则来源是实测、但尺度分配是启发式的，不能拿绿点给整屏背书。
+    if multi:
+        level = "mixed"
+        label, color = "规则·启发式", "#c9a227"
+        why = "规则来自课程/实测，但「尺度怎么分」是启发式，不是 solver 真值"
+    return {"level": level, "label": label, "color": color,
+            "why": why, "source": src, "honest": True}
+
+
+_LIVE_CACHE: dict = {}
+
+
+def _locked_advice(locks, hero_pos, opp_pos, board_text, sizing, pot):
+    """有节点锁定时，算我方的最佳反应（不影响主规则，只做附加建议）。"""
+    if not locks or not board_text or len(board_text) < 6:
+        return None
+    try:
+        from .locks import compile_ranges
+        from .fastcalc import best_response
+        rr = compile_ranges(locks, hero_pos or "*", opp_pos or "*", pot)
+        if not rr.get("has_lock"):
+            return None
+        from .tree import parse_sizings as _ps
+        base = _ps(sizing)
+        if not base:
+            return None
+        out = best_response(rr["hero_range"], rr["villain_range"],
+                            board_text, base[0])
+        if not out.get("ok"):
+            return None
+        out["source"] = {"hero": rr["hero_src"], "villain": rr["villain_src"]}
+        return out
+    except Exception:
+        return None
+
+
+def _live_advice(hero_pos, opp_pos, board_text, sizing, pot, role):
+    """毫秒级范围优势 → 尺度微调。失败就返回 None，不影响主流程。"""
+    if not board_text or len(board_text) < 6:
+        return None
+    key = (hero_pos, opp_pos, board_text, sizing, pot, role)
+    if key in _LIVE_CACHE:
+        return _LIVE_CACHE[key]
+    try:
+        from .fastcalc import advantage, refine_sizing
+        from .preflop import get as _g
+        if hero_pos in ("*", "", None) or opp_pos in ("*", "", None):
+            return None
+        h = _g(hero_pos, opp_pos)
+        v = _g(opp_pos, hero_pos)
+        r = advantage(h, v, board_text, iters=150)
+        if not r.get("ok"):
+            return None
+        # ── EQR：把裸胜率修正成实际能兑现的权益 ──
+        try:
+            from .eqr import realized_equity
+            from .tree import parse_sizings as _pss
+            # 我是不是有位置：PFR 方通常算 IP（简化假设）
+            ip = "PFR" in (role or "") and not (role or "").startswith("OOP")
+            bb = 100.0
+            try:
+                bb = float(str(stack).replace("bb", "").split("·")[0])
+            except Exception:
+                pass
+            spp = max(1.0, bb / 6.5)          # 粗略 SPR：筹码 / 翻前底池
+            g = realized_equity(r["equity"], "AKo", ip, spp)   # 用平均牌取其系数
+            r["raw_equity"] = r["equity"]
+            r["eqr"] = g["eqr"]
+            r["equity"] = g["realized"]
+            r["adv"] = round(r["realized"] - 0.5, 4)
+        except Exception:
+            pass
+        from .tree import parse_sizings as _ps
+        base = _ps(sizing)
+        out = {"equity": r["equity"], "adv": r["adv"],
+               "n_hero": r["n_hero"], "n_vill": r["n_vill"]}
+        if base:
+            newv, why = refine_sizing(base[0], r["adv"])
+            out["base_sizing"] = base[0]
+            out["refined_sizing"] = round(newv)
+            out["why"] = why
+        _LIVE_CACHE[key] = out
+        return out
+    except Exception:
+        return None
+
+
+# ══ 翻前混合频率推导：范围边缘的手牌给混合，核心给纯 ═══════════
+# 说明：这是**推导值**，不是 solver 实测。逻辑是「越靠范围边缘越混合」。
+def _hand_strength(cid: str) -> float:
+    """粗糙牌力分（0-1），用来判断这手牌在范围里的位置。"""
+    R = "23456789TJQKA"
+    order = {c: i for i, c in enumerate(R)}          # 2→0, A→12
+    a, b = order.get(cid[0], 0), order.get(cid[1], 0)
+    hi, lo = max(a, b), min(a, b)
+    if len(cid) == 2:                                  # 口袋对
+        return 0.55 + hi / 12 * 0.45
+    base = hi / 12 * 0.6 + lo / 12 * 0.25
+    if cid.endswith("s"):
+        base += 0.10
+    if hi == 12:                                       # 带 A
+        base += 0.08
+    if hi - lo == 1:                                   # 连牌
+        base += 0.03
+    return min(1.0, base)
+
+
+def preflop_freq_matrix(pos: str, opp: str, kind: str = "open", vs_type: str = "*"):
+    """每手牌的 加注/跟注/弃牌 百分比（推导的混合频率）。"""
+    base = preflop_range_matrix(pos, opp, kind, vs_type)
+    if not base.get("ok"):
+        return base
+    acts = {c["combo"]: c["act"] for c in base["cells"]}
+    # 每个动作的「牌力分界线」：范围内最弱的那批给混合
+    raise_h = sorted([h for h, a in acts.items() if a == "raise"], key=_hand_strength)
+    call_h = sorted([h for h, a in acts.items() if a == "call"], key=_hand_strength)
+
+    # 最弱的 25% 加注牌 → 混合（70% 加 / 30% 跟）
+    n_raise = max(1, round(len(raise_h) * 0.25))
+    weak_raise = set(raise_h[:n_raise]) if len(raise_h) > 3 else set()
+    n_call = max(1, round(len(call_h) * 0.3))
+    weak_call = set(call_h[:n_call]) if len(call_h) > 3 else set()
+
+    cells = []
+    for c in base["cells"]:
+        h, a = c["combo"], c["act"]
+        if a == "raise":
+            if h in weak_raise:
+                cells.append({"combo": h, "act": "raise", "raise": 70, "call": 30, "fold": 0})
+            else:
+                cells.append({"combo": h, "act": "raise", "raise": 100, "call": 0, "fold": 0})
+        elif a == "call":
+            if h in weak_call:
+                cells.append({"combo": h, "act": "call", "raise": 0, "call": 50, "fold": 50})
+            else:
+                cells.append({"combo": h, "act": "call", "raise": 0, "call": 100, "fold": 0})
+        else:
+            cells.append({"combo": h, "act": "fold", "raise": 0, "call": 0, "fold": 100})
+    base["cells"] = cells
+    base["note"] = "频率为推导值（范围边缘混合），非 solver 实测"
+    return base
+
+
+# ══ 混合策略该展示什么：聚合频率 + 边界，而不是每手牌精确百分比 ═══
+# 依据：均衡价值唯一、策略不唯一。百分比常是任意的，
+# 稳定的是「聚合频率」和「边界在哪」。所以展示层按这个原则输出。
+def mix_display(cells: list, sizing_label: str = "") -> dict:
+    """从 169 格算出该展示什么。
+
+    边界手牌的判定不再是「频率在 20–80%」这种粗筛，而是：
+      1. 按牌力排序
+      2. 找到「该打」和「不该打」的转折点（频率从高跨到低的位置）
+      3. 转折点附近的手牌才是真边界 —— 它们才是「怎么打都差不多」的那几手
+    """
+    acted, boundary = [], []
+    alive = [c for c in cells
+             if c.get("bucket") is not None and not c.get("impossible")]
+    if not alive:
+        return {"aggregate_freq": 0, "boundary": [], "acted_count": 0,
+                "sizing": sizing_label, "note": ""}
+
+    # 按「频率 + 牌力」排序，找转折点
+    def _strength(c):
+        try:
+            from .eqr import from_board_cat
+            return from_board_cat(c.get("cat") or "", True, 6.0)["eqr"]
+        except Exception:
+            return 1.0
+    ordered = sorted(alive, key=lambda c: (-_strength(c), -int(c["bucket"])))
+    freqs = [int(c["bucket"]) for c in ordered]
+    # 转折点：连续两格频率差最大的位置
+    cut, gap = 0, 0
+    for i in range(len(freqs) - 1):
+        d = freqs[i] - freqs[i + 1]
+        if d > gap:
+            gap, cut = d, i
+    # 转折点前后各取几手 —— 这些才是真正的「边界」
+    lo = max(0, cut - 2)
+    hi = min(len(ordered), cut + 3)
+    for c in ordered[lo:hi]:
+        boundary.append({"hand": c["combo"], "freq": int(c["bucket"]),
+                         "cat": c.get("cat"), "why": "处在「该打/不该打」的分界上"})
+    for c in alive:
+        if int(c["bucket"]) > 0:
+            acted.append(c["combo"])
+    agg = round(sum(c["bucket"] for c in cells
+                    if c.get("bucket") is not None and not c.get("impossible"))
+                / max(1, len([c for c in cells
+                              if c.get("bucket") is not None and not c.get("impossible")])), 1)
+    return {
+        "aggregate_freq": agg,                 # 聚合频率：真信息
+        "boundary": boundary[:8],              # 边界手牌：真信息
+        "acted_count": len(acted),
+        "sizing": sizing_label,
+        "note": "百分比常不唯一（均衡策略不唯一）；稳定的只有聚合频率和边界手牌",
+    }
+
+
+def size_pref(bucket: float, sizes: list) -> str:
+    """给单手提一个「偏大/中/小」的倾向，不报精确百分比。"""
+    if not sizes or bucket is None:
+        return "—"
+    import re as _r
+    nums = []
+    for s in sizes:
+        m = _r.findall(r"(\d{1,3})\s*%", s or "")
+        if m:
+            nums.append((int(max(m, key=int)), s))
+    if not nums:
+        return str(sizes[0])
+    nums.sort()
+    hi = nums[-1][0] if len(nums) > 1 else 100
+    lo = nums[0][0]
+    if bucket >= 65:
+        return "偏大" if hi > 60 else "标准"
+    if bucket <= 25:
+        return "偏小"
+    return "中"

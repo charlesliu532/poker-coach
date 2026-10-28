@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>扑克复盘台</title>
-<link rel="stylesheet" href="/static/style.css?v=15">
+<link rel="stylesheet" href="/static/style.css?v=26">
 </head>
 <body>
   <div id="fatalBar" style="display:none;position:fixed;top:0;left:0;right:0;z-index:99999;
@@ -56,21 +56,22 @@
       <div class="row" style="margin-top:0">
         <h2 class="inline">策略树</h2>
         <span id="treeMeta" class="badge"></span>
+        <button class="diag-btn" onclick="openDiagnostics()" title="查看内部 ID 与状态">⚙</button>
       </div>
 
       <div class="flow">
         <!-- ① 桌型与筹码 -->
-        <div class="step"><label>① 桌型</label>
+        <div class="step"><label>桌型</label>
           <select id="treeTableType">
             <option>6-max</option><option>8-max</option>
             <option>8-max + 强抓</option><option>8-max + 强抓 + 0.5bb前注</option>
           </select></div>
-        <div class="step"><label>② 筹码</label>
+        <div class="step"><label>筹码</label>
           <select id="treeHeroStack">
             <option value="20bb">小于 25bb</option>
             <option value="50bb">50bb</option>
-            <option value="100bb" selected>100bb（八人桌 200bb）</option>
-            <option value="200bb">200bb（八人桌 400bb）</option>
+            <option value="100bb" selected>100bb</option>
+            <option value="200bb">200bb</option>
             <option value="200bb·前注">200bb·0.5前注</option>
             <option value="*">任意</option>
           </select></div>
@@ -85,14 +86,10 @@
         <div class="step"><label>等效</label>
           <span id="stackEquiv" class="hint" style="align-self:center">—</span></div>
 
-        <!-- ③ 翻前：只选位置，剧情自动推导 -->
-        <div class="step"><label>③ 我的位置</label>
-          <select id="pfMe"></select></div>
-        <div class="step"><label>④ 对手位置</label>
-          <select id="pfOpp"></select></div>
-        <div class="step"><label>⑤ 翻前剧情</label>
-          <select id="pfLine"></select></div>
-        <div class="step"><label>→ 底池</label>
+        <div class="step" style="grid-column:1/-1"><label>翻前序列</label>
+          <div id="pfSeqBox" class="pf-seq"></div>
+        </div>
+        <div class="step"><label>局面</label>
           <span id="potAuto" class="hint" style="align-self:center">SRP</span></div>
 
         <!-- ⑦ 对手形象 -->
@@ -101,18 +98,22 @@
             <option>标准</option><option>紧凶</option><option>松凶</option><option>岩石</option>
             <option>受气包</option><option>跟注站</option><option>娱乐玩家</option>
             <option>过度诈唬型</option><option>下注不足型</option></select></div>
-        <div class="step"><label>⑥ 对手类型</label>
+        <div class="step"><label>对手类型</label>
           <select id="treeVsType"><option value="*">任意</option>
             <option>标准</option><option>紧凶</option><option>松凶</option><option>岩石</option>
             <option>受气包</option><option>跟注站</option><option>娱乐玩家</option>
             <option>过度诈唬型</option><option>下注不足型</option></select></div>
 
         <!-- ⑧ 牌面 -->
-        <div class="step"><label>⑦ 牌面</label>
+        <div class="step"><label>牌面</label>
           <div class="board-picker" id="boardPicker"></div>
           <input id="treeBoard" value="" type="hidden"></div>
-        <div class="step"><label>⑧ 街道</label>
+        <div class="step"><label>街道</label>
           <select id="treeStreet"><option>翻牌</option><option>转牌</option><option>河牌</option><option>翻前</option></select></div>
+        <div class="step step-cta" style="grid-column:1/-1">
+          <button id="mainCta" class="cta-btn">分析这个局面</button>
+          <span class="cta-hint" id="ctaHint">结果会自动出现，点这里可以固定当前配置</span>
+        </div>
 
         <!-- 隐藏字段：由上面的选择自动推导 -->
         <input id="treeHero" type="hidden" value="BTN">
@@ -131,17 +132,22 @@
 
       <div class="chips-row">
         <label class="chip" title="勾上=保留多尺度混合；不勾=合并成单尺度">
-          <input type="checkbox" id="treeMulti" disabled> 混合策略
+          <input type="checkbox" id="treeMulti"> 混合策略
         </label>
-        <span class="chip-note">不勾即简化（翻前 100/75/50/25/0 · 翻后 100/80/60/40/20/0）</span>
-        <span class="chip-soon">混合暂未开启</span>
+        <span class="chip-note">不勾 = 只用单一下注尺度</span>
+        <span class="chip-note" style="color:#3ba55d">勾上 = 显示多个尺度的混合</span>
       </div>
       <div id="treeStraddleTip" class="hint" style="display:none;margin-top:4px"></div>
+      <div id="treeGuarantee" class="g-bar"></div>
       <div id="tableBox"></div>
+      <div id="mixSummary" class="mix-summary"></div>
+      <div id="lockList" class="lock-list"></div>
+      <div id="compareBox" class="cmp-box"></div>
+      <div id="versionBar" class="version-bar"></div>
       <div class="sent" id="treeSent"></div>
       <div class="sent" id="treeNext"></div>
       <div id="vsTypeBox" class="panel hidden" style="margin-top:10px"></div>
-      <div class="legend" style="margin:2px 0 8px">
+      <div class="legend" id="boardHint" style="margin:2px 0 8px">
         牌面写法：翻牌 <code>A72r</code> / <code>KQ9tt</code> / <code>T94m</code>；转牌、河牌写满 5 张，如 <code>Ah7d2c9s5d</code>。
         改任何一个条件都会自动重查。
       </div>
@@ -576,6 +582,6 @@
   <div id="readBody" class="readbody"></div>
 </dialog>
 
-<script src="/static/app.js?v=79"></script>
+<script src="/static/app.js?v=105"></script>
 </body>
 </html>
